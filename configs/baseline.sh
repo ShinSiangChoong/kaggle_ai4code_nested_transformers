@@ -1,6 +1,6 @@
 #!/usr/bin/sh
 
-python train.py \
+python src/training/train.py \
 --md_max_len 64 \
 --total_max_len 512 \
 --batch_size 4 \
