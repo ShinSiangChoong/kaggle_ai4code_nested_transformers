@@ -1,20 +1,17 @@
 # Python stdlib
 from pathlib import Path
 import argparse
-import json
-import os
 # General DS
 import numpy as np
 import pandas as pd
 # Torch
 import torch
-from torch.utils.data import DataLoader
 # Hugging Face
 from transformers import AdamW, get_linear_schedule_with_warmup
 
 
-from src.data.datasets.baseline_data import MarkdownDataset
-from src.utils import nice_pbar
+from src.data.quickdata import get_train_dl, get_val_dl
+from src.utils import nice_pbar, make_folder
 from src.eval.metrics import kendall_tau
 from src.models.baseline import MarkdownModel
 from src.data import read_data
@@ -40,12 +37,6 @@ def parse_args():
     return args
 
 
-def make_output_folder():
-    """Makes the ./output folder if not already present"""
-    if not os.path.exists("./outputs"):
-        os.mkdir("./outputs")
-
-
 def train(model, train_loader, val_loader, epochs):
     np.random.seed(0)
     # Creating optimizer and lr schedulers
@@ -65,12 +56,13 @@ def train(model, train_loader, val_loader, epochs):
     criterion = torch.nn.L1Loss()
     scaler = torch.cuda.amp.GradScaler()
 
-    for e in range(epochs):
+    for epoch in range(1, epochs + 1):
         model.train()
-        tbar = nice_pbar(train_loader, len(train_loader), f"Train {e + 1}")
         loss_list = []
         preds = []
         labels = []
+
+        tbar = nice_pbar(train_loader, len(train_loader), f"Train {epoch + 1}")
 
         for idx, data in enumerate(tbar):
             inputs, target = read_data(data)
@@ -105,19 +97,13 @@ def train(model, train_loader, val_loader, epochs):
     return model, y_pred
 
 
-DATA_DIR = Path('../input/')
-
 if __name__ == '__main__':
     args = parse_args()
-    make_output_folder()
+    make_folder('./outputs')
+    DATA_DIR = Path('../input')
 
     # TODO: Refactor to data
-    train_df_mark = pd.read_csv(args.train_mark_path).drop("parent_id", axis=1).dropna().reset_index(drop=True)
-    train_fts = json.load(open(args.train_features_path))
-    val_df_mark = pd.read_csv(args.val_mark_path).drop("parent_id", axis=1).dropna().reset_index(drop=True)
-    val_fts = json.load(open(args.val_features_path))
     val_df = pd.read_csv(args.val_path)
-
     order_df = pd.read_csv("../input/train_orders.csv").set_index("id")
     df_orders = pd.read_csv(
         DATA_DIR / 'train_orders.csv',
@@ -125,11 +111,8 @@ if __name__ == '__main__':
         squeeze=True,
     ).str.split()
 
-    train_ds = MarkdownDataset(train_df_mark, model_name_or_path=args.model_name_or_path, md_max_len=args.md_max_len, total_max_len=args.total_max_len, fts=train_fts)
-    val_ds = MarkdownDataset(val_df_mark, model_name_or_path=args.model_name_or_path, md_max_len=args.md_max_len, total_max_len=args.total_max_len, fts=val_fts)
-
-    train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, num_workers=args.n_workers, pin_memory=False, drop_last=True)
-    val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=args.n_workers, pin_memory=False, drop_last=False)
+    train_loader = get_train_dl(args)
+    val_loader = get_val_dl(args)
 
     model = MarkdownModel(args.model_name_or_path)
     model = model.cuda()
