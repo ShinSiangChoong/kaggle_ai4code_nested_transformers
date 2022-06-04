@@ -38,8 +38,12 @@ lint:
 	flake8 src
 
 ## Set up python interpreter environment (Not tested)
+setup_dev:
+	sh scripts/make_untracked_dirs.sh
+
+## Set up python interpreter environment (Not tested)
 create_environment:
-	bash environ_setup.sh
+	bash scripts/environ_setup.sh
 
 ## Test python environment is setup correctly (Not Used)
 test_environment:

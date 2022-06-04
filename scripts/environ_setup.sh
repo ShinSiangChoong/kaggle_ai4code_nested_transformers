@@ -7,6 +7,7 @@ conda install pandas numpy matplotlib
 pip install transformers
 pip install scipy wandb tqdm
 pip install scikit-learn
+pip install -e .
 
 conda install jupyterlab
 conda install ipykernel

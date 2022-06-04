@@ -3,6 +3,7 @@
 /competition_files
 /notebooks
 /outputs
+/purgatory
 *.pth
 
 # Byte-compiled / optimized / DLL files
