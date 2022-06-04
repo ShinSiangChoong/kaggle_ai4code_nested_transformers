@@ -11,7 +11,7 @@ from transformers import AdamW, get_linear_schedule_with_warmup
 
 
 from src.data.quickdata import get_train_dl, get_val_dl
-from src.utils import nice_pbar, make_folder
+from src.utils import nice_pbar, make_folder, lr_to_4sf
 from src.eval.metrics import kendall_tau
 from src.models.baseline import MarkdownModel
 from src.data import read_data
@@ -39,6 +39,7 @@ def parse_args():
 
 def train(model, train_loader, val_loader, epochs):
     np.random.seed(0)
+
     # Creating optimizer and lr schedulers
     param_optimizer = list(model.named_parameters())
     no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
@@ -59,8 +60,8 @@ def train(model, train_loader, val_loader, epochs):
     for epoch in range(1, epochs + 1):
         model.train()
         loss_list = []
-        preds = []
-        labels = []
+        # preds = []
+        # labels = []
 
         tbar = nice_pbar(train_loader, len(train_loader), f"Train {epoch + 1}")
 
@@ -71,19 +72,22 @@ def train(model, train_loader, val_loader, epochs):
                 pred = model(*inputs)
                 loss = criterion(pred, target)
             scaler.scale(loss).backward()
+
             if idx % args.accumulation_steps == 0 or idx == len(tbar) - 1:
                 scaler.step(optimizer)
                 scaler.update()
                 optimizer.zero_grad()
                 scheduler.step()
 
-            loss_list.append(loss.detach().cpu().item())
-            preds.append(pred.detach().cpu().numpy().ravel())
-            labels.append(target.detach().cpu().numpy().ravel())
+            loss_list.append(loss.item())
+            # preds.append(pred.detach().numpy().ravel())
+            # labels.append(target.detach().numpy().ravel())
 
-            avg_loss = np.round(np.mean(loss_list), 4)
+            running_avg_loss = np.round(np.mean(loss_list[-20:]), 4)
 
-            tbar.set_postfix(loss=avg_loss, lr=scheduler.get_last_lr())
+            tbar.set_postfix(loss=running_avg_loss, lr=lr_to_4sf(scheduler.get_last_lr()))
+
+        torch.save(model.state_dict(), f"./outputs/model-{epoch}.bin")
 
         # TODO: Refactor to eval
         from src.eval import get_preds
@@ -91,8 +95,9 @@ def train(model, train_loader, val_loader, epochs):
         val_df["pred"] = val_df.groupby(["id", "cell_type"])["rank"].rank(pct=True)
         val_df.loc[val_df["cell_type"] == "markdown", "pred"] = y_pred
         y_dummy = val_df.sort_values("pred").groupby('id')['cell_id'].apply(list)
+
         print("Preds score", kendall_tau(df_orders.loc[y_dummy.index], y_dummy))
-        torch.save(model.state_dict(), "./outputs/model.bin")
+        print("Avg train loss", np.mean(loss_list))
 
     return model, y_pred
 

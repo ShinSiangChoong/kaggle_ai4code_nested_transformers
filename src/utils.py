@@ -1,6 +1,6 @@
 import os
 from tqdm import tqdm
-from typing import Iterable
+from typing import Iterable, List
 
 
 def nice_pbar(iterable: Iterable, total: int, desc: str) -> tqdm:
@@ -37,3 +37,15 @@ def make_folder(folder: str) -> bool:
     except FileExistsError:
         pass
     return False
+
+
+def lr_to_4sf(lr: List[float]) -> str:
+    """Get string of lr list that is rounded to 4sf to not clutter pbar
+
+    Warning:
+        Doesn't work for floats > 10000
+    """
+    def _f(x) -> str:
+        a = str(x).partition('e')
+        return a[0][:5] + 'e' + a[-1]
+    return '[' + ', '.join(map(_f, lr)) + ']'
