@@ -4,6 +4,7 @@ import argparse
 # General DS
 import numpy as np
 import pandas as pd
+import wandb
 # Torch
 import torch
 # Hugging Face
@@ -33,12 +34,23 @@ def parse_args():
     parser.add_argument('--epochs', type=int, default=5)
     parser.add_argument('--n_workers', type=int, default=8)
 
+    parser.add_argument('--wandb_mode', type=str, default="offline")
+
     args = parser.parse_args()
     return args
 
 
 def train(model, train_loader, val_loader, epochs):
     np.random.seed(0)
+
+    # TODO: Refactor to data
+    DATA_DIR = Path('../input')
+    val_df = pd.read_csv(args.val_path)
+    df_orders = pd.read_csv(
+        DATA_DIR / 'train_orders.csv',
+        index_col='id',
+        squeeze=True,
+    ).str.split()
 
     # Creating optimizer and lr schedulers
     param_optimizer = list(model.named_parameters())
@@ -63,7 +75,7 @@ def train(model, train_loader, val_loader, epochs):
         # preds = []
         # labels = []
 
-        tbar = nice_pbar(train_loader, len(train_loader), f"Train {epoch + 1}")
+        tbar = nice_pbar(train_loader, len(train_loader), f"Train {epoch}")
 
         for idx, data in enumerate(tbar):
             inputs, target = read_data(data)
@@ -83,9 +95,14 @@ def train(model, train_loader, val_loader, epochs):
             # preds.append(pred.detach().numpy().ravel())
             # labels.append(target.detach().numpy().ravel())
 
-            running_avg_loss = np.round(np.mean(loss_list[-20:]), 4)
+            if idx % 20 == 0:
+                metrics = {}
+                metrics['loss'] = np.round(np.mean(loss_list[-20:]), 4)
+                metrics['prev_lr'], metrics['next_lr'] = scheduler.get_last_lr()
+                metrics['diff_lr'] = metrics['next_lr'] - metrics['prev_lr']
+                wandb.log(metrics)
 
-            tbar.set_postfix(loss=running_avg_loss, lr=lr_to_4sf(scheduler.get_last_lr()))
+                tbar.set_postfix(loss=metrics['loss'], lr=lr_to_4sf(scheduler.get_last_lr()))
 
         torch.save(model.state_dict(), f"./outputs/model-{epoch}.bin")
 
@@ -102,23 +119,26 @@ def train(model, train_loader, val_loader, epochs):
     return model, y_pred
 
 
-if __name__ == '__main__':
-    args = parse_args()
+def main(args):
     make_folder('./outputs')
-    DATA_DIR = Path('../input')
-
-    # TODO: Refactor to data
-    val_df = pd.read_csv(args.val_path)
-    order_df = pd.read_csv("../input/train_orders.csv").set_index("id")
-    df_orders = pd.read_csv(
-        DATA_DIR / 'train_orders.csv',
-        index_col='id',
-        squeeze=True,
-    ).str.split()
 
     train_loader = get_train_dl(args)
     val_loader = get_val_dl(args)
 
     model = MarkdownModel(args.model_name_or_path)
     model = model.cuda()
+    wandb.watch(model, log_freq=10000, log_graph=True, log="all")
     model, y_pred = train(model, train_loader, val_loader, epochs=args.epochs)
+
+
+if __name__ == '__main__':
+    args = parse_args()
+    wandb.init(
+        project="AI4Code Dev",
+        name="Baseline",
+        mode=args.wandb_mode,
+    )
+    try:
+        main(args)
+    finally:
+        wandb.finish()
