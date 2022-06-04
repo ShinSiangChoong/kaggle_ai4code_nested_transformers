@@ -17,6 +17,7 @@ from src.data.datasets.baseline_data import MarkdownDataset
 from src.utils import nice_pbar
 from src.eval.metrics import kendall_tau
 from src.models.baseline import MarkdownModel
+from src.data import read_data
 
 
 def parse_args():
@@ -38,61 +39,11 @@ def parse_args():
     args = parser.parse_args()
     return args
 
+
 def make_output_folder():
     """Makes the ./output folder if not already present"""
     if not os.path.exists("./outputs"):
         os.mkdir("./outputs")
-
-args = parse_args()
-make_output_folder()
-DATA_DIR = Path('../input/')
-
-train_df_mark = pd.read_csv(args.train_mark_path).drop("parent_id", axis=1).dropna().reset_index(drop=True)
-train_fts = json.load(open(args.train_features_path))
-val_df_mark = pd.read_csv(args.val_mark_path).drop("parent_id", axis=1).dropna().reset_index(drop=True)
-val_fts = json.load(open(args.val_features_path))
-val_df = pd.read_csv(args.val_path)
-
-order_df = pd.read_csv("../input/train_orders.csv").set_index("id")
-df_orders = pd.read_csv(
-    DATA_DIR / 'train_orders.csv',
-    index_col='id',
-    squeeze=True,
-).str.split()
-
-train_ds = MarkdownDataset(train_df_mark, model_name_or_path=args.model_name_or_path, md_max_len=args.md_max_len,
-                           total_max_len=args.total_max_len, fts=train_fts)
-val_ds = MarkdownDataset(val_df_mark, model_name_or_path=args.model_name_or_path, md_max_len=args.md_max_len,
-                         total_max_len=args.total_max_len, fts=val_fts)
-train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, num_workers=args.n_workers,
-                          pin_memory=False, drop_last=True)
-val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=args.n_workers,
-                        pin_memory=False, drop_last=False)
-
-
-def read_data(data):
-    return tuple(d.cuda() for d in data[:-1]), data[-1].cuda()
-
-
-def validate(model, val_loader):
-    model.eval()
-
-    tbar = nice_pbar(val_loader, len(val_loader), f"Validation")
-
-    preds = []
-    labels = []
-
-    with torch.no_grad():
-        for idx, data in enumerate(tbar):
-            inputs, target = read_data(data)
-
-            with torch.cuda.amp.autocast():
-                pred = model(*inputs)
-
-            preds.append(pred.detach().cpu().numpy().ravel())
-            labels.append(target.detach().cpu().numpy().ravel())
-
-    return np.concatenate(labels), np.concatenate(preds)
 
 
 def train(model, train_loader, val_loader, epochs):
@@ -142,7 +93,9 @@ def train(model, train_loader, val_loader, epochs):
 
             tbar.set_postfix(loss=avg_loss, lr=scheduler.get_last_lr())
 
-        y_val, y_pred = validate(model, val_loader)
+        # TODO: Refactor to eval
+        from src.eval import get_preds
+        y_val, y_pred = get_preds(model, val_loader)
         val_df["pred"] = val_df.groupby(["id", "cell_type"])["rank"].rank(pct=True)
         val_df.loc[val_df["cell_type"] == "markdown", "pred"] = y_pred
         y_dummy = val_df.sort_values("pred").groupby('id')['cell_id'].apply(list)
@@ -152,6 +105,32 @@ def train(model, train_loader, val_loader, epochs):
     return model, y_pred
 
 
-model = MarkdownModel(args.model_name_or_path)
-model = model.cuda()
-model, y_pred = train(model, train_loader, val_loader, epochs=args.epochs)
+DATA_DIR = Path('../input/')
+
+if __name__ == '__main__':
+    args = parse_args()
+    make_output_folder()
+
+    # TODO: Refactor to data
+    train_df_mark = pd.read_csv(args.train_mark_path).drop("parent_id", axis=1).dropna().reset_index(drop=True)
+    train_fts = json.load(open(args.train_features_path))
+    val_df_mark = pd.read_csv(args.val_mark_path).drop("parent_id", axis=1).dropna().reset_index(drop=True)
+    val_fts = json.load(open(args.val_features_path))
+    val_df = pd.read_csv(args.val_path)
+
+    order_df = pd.read_csv("../input/train_orders.csv").set_index("id")
+    df_orders = pd.read_csv(
+        DATA_DIR / 'train_orders.csv',
+        index_col='id',
+        squeeze=True,
+    ).str.split()
+
+    train_ds = MarkdownDataset(train_df_mark, model_name_or_path=args.model_name_or_path, md_max_len=args.md_max_len, total_max_len=args.total_max_len, fts=train_fts)
+    val_ds = MarkdownDataset(val_df_mark, model_name_or_path=args.model_name_or_path, md_max_len=args.md_max_len, total_max_len=args.total_max_len, fts=val_fts)
+
+    train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, num_workers=args.n_workers, pin_memory=False, drop_last=True)
+    val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=args.n_workers, pin_memory=False, drop_last=False)
+
+    model = MarkdownModel(args.model_name_or_path)
+    model = model.cuda()
+    model, y_pred = train(model, train_loader, val_loader, epochs=args.epochs)
