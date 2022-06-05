@@ -38,14 +38,14 @@ def parse_args():
     parser.add_argument('--wandb_mode', type=str, default="offline")
     parser.add_argument('--output_dir', type=str, default="./outputs")
 
+    args = parser.parse_args()
+
     PROC_DIR = Path(os.environ['PROC_DIR'])
     args.train_mark_path = PROC_DIR / "train_mark.csv"
     args.train_features_path = PROC_DIR / "train_fts.json"
     args.val_mark_path = PROC_DIR / "val_mark.csv"
     args.val_features_path = PROC_DIR / "val_fts.json"
     args.val_path = PROC_DIR / "val.csv"
-
-    args = parser.parse_args()
     return args
 
 
