@@ -1,6 +1,7 @@
 # Python stdlib
 from pathlib import Path
 import argparse
+import os
 # General DS
 import numpy as np
 import pandas as pd
@@ -21,11 +22,11 @@ from src.data import read_data
 def parse_args():
     parser = argparse.ArgumentParser(description='Process some arguments')
     parser.add_argument('--model_name_or_path', type=str, default='microsoft/codebert-base')
-    parser.add_argument('--train_mark_path', type=str, default='./data/train_mark.csv')
-    parser.add_argument('--train_features_path', type=str, default='./data/train_fts.json')
-    parser.add_argument('--val_mark_path', type=str, default='./data/val_mark.csv')
-    parser.add_argument('--val_features_path', type=str, default='./data/val_fts.json')
-    parser.add_argument('--val_path', type=str, default="./data/val.csv")
+    # parser.add_argument('--train_mark_path', type=str, default='./data/train_mark.csv')
+    # parser.add_argument('--train_features_path', type=str, default='./data/train_fts.json')
+    # parser.add_argument('--val_mark_path', type=str, default='./data/val_mark.csv')
+    # parser.add_argument('--val_features_path', type=str, default='./data/val_fts.json')
+    # parser.add_argument('--val_path', type=str, default="./data/val.csv")
 
     parser.add_argument('--md_max_len', type=int, default=64)
     parser.add_argument('--total_max_len', type=int, default=512)
@@ -35,6 +36,14 @@ def parse_args():
     parser.add_argument('--n_workers', type=int, default=8)
 
     parser.add_argument('--wandb_mode', type=str, default="offline")
+    parser.add_argument('--output_dir', type=str, default="./outputs")
+
+    PROC_DIR = Path(os.environ['PROC_DIR'])
+    args.train_mark_path = PROC_DIR / "train_mark.csv"
+    args.train_features_path = PROC_DIR / "train_fts.json"
+    args.val_mark_path = PROC_DIR / "val_mark.csv"
+    args.val_features_path = PROC_DIR / "val_fts.json"
+    args.val_path = PROC_DIR / "val.csv"
 
     args = parser.parse_args()
     return args
@@ -44,7 +53,7 @@ def train(model, train_loader, val_loader, epochs):
     np.random.seed(0)
 
     # TODO: Refactor to data
-    DATA_DIR = Path('../input')
+    DATA_DIR = Path(os.environ['RAW_DIR'])
     val_df = pd.read_csv(args.val_path)
     df_orders = pd.read_csv(
         DATA_DIR / 'train_orders.csv',
@@ -120,7 +129,7 @@ def train(model, train_loader, val_loader, epochs):
 
 
 def main(args):
-    make_folder('./outputs')
+    make_folder(args.output_dir)
 
     train_loader = get_train_dl(args)
     val_loader = get_val_dl(args)
