@@ -32,7 +32,7 @@ def make_folder(folder: str) -> bool:
         created (bool): Whether or not a folder was created
     """
     try:
-        os.mkdir("./outputs")
+        os.mkdir(folder)
         return True
     except FileExistsError:
         pass

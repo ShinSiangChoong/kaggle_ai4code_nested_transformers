@@ -1,32 +1,32 @@
 # Python stdlib
 from pathlib import Path
+import random
 import json
 import os
 # General DS
 import numpy as np
 import pandas as pd
 
-
-from src.utils import nice_pbar
-
-data_dir = Path('../input/')
-if not os.path.exists("./data"):
-    os.mkdir("./data")
-
-def read_notebook(path):
-    return (
-        pd.read_json(
-            path,
-            dtype={'cell_type': 'category', 'source': 'str'})
-            .assign(id=path.stem)
-            .rename_axis('cell_id')
-    )
+from src.utils import nice_pbar, make_folder
+from src.data.preprocess import nb_to_df
 
 
-paths_train = list((data_dir / 'train').glob('*.json'))
-notebooks_train = [
-    read_notebook(path) for path in nice_pbar(paths_train, total=len(paths_train), desc='Train NBs')
-]
+RAW_DIR: str = Path(os.environ['RAW_DIR'])
+PROC_DIR: str = Path(os.environ['PROC_DIR'])
+PCT_DATA: str = float(os.environ['PCT_DATA'])
+
+if not make_folder(PROC_DIR):
+    raise Exception('hrm')
+
+paths_train = list((RAW_DIR / 'train').glob('*.json'))
+random.seed(str(PROC_DIR))
+random.shuffle(paths_train)
+
+N = int(PCT_DATA * len(paths_train))
+paths_train = paths_train[:N]
+
+pbar = nice_pbar(paths_train, total=len(paths_train), desc='Train NBs')
+notebooks_train = [nb_to_df(path) for path in pbar]
 df = (
     pd.concat(notebooks_train)
         .set_index('id', append=True)
@@ -35,7 +35,7 @@ df = (
 )
 
 df_orders = pd.read_csv(
-    data_dir / 'train_orders.csv',
+    RAW_DIR / 'train_orders.csv',
     index_col='id',
     squeeze=True,
 ).str.split()  # Split the string representation of cell_ids into a list
@@ -61,7 +61,7 @@ df_ranks = (
         .set_index('cell_id', append=True)
 )
 
-df_ancestors = pd.read_csv(data_dir / 'train_ancestors.csv', index_col='id')
+df_ancestors = pd.read_csv(RAW_DIR / 'train_ancestors.csv', index_col='id')
 df = df.reset_index().merge(df_ranks, on=["id", "cell_id"]).merge(df_ancestors, on=["id"])
 df["pct_rank"] = df["rank"] / df.groupby("id")["cell_id"].transform("count")
 
@@ -76,10 +76,10 @@ val_df = df.loc[val_ind].reset_index(drop=True)
 # Base markdown dataframes
 train_df_mark = train_df[train_df["cell_type"] == "markdown"].reset_index(drop=True)
 val_df_mark = val_df[val_df["cell_type"] == "markdown"].reset_index(drop=True)
-train_df_mark.to_csv("./data/train_mark.csv", index=False)
-val_df_mark.to_csv("./data/val_mark.csv", index=False)
-val_df.to_csv("./data/val.csv", index=False)
-train_df.to_csv("./data/train.csv", index=False)
+train_df_mark.to_csv(PROC_DIR / "train_mark.csv", index=False)
+val_df_mark.to_csv(PROC_DIR / "val_mark.csv", index=False)
+val_df.to_csv(PROC_DIR / "val.csv", index=False)
+train_df.to_csv(PROC_DIR / "train.csv", index=False)
 
 
 # Additional code cells
@@ -119,6 +119,6 @@ def get_features(df: pd.DataFrame):
     return features
 
 val_fts = get_features(val_df)
-json.dump(val_fts, open("./data/val_fts.json","wt"))
+json.dump(val_fts, open(PROC_DIR / "val_fts.json","wt"))
 train_fts = get_features(train_df)
-json.dump(train_fts, open("./data/train_fts.json","wt"))
+json.dump(train_fts, open(PROC_DIR / "train_fts.json","wt"))
