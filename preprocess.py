@@ -15,8 +15,16 @@ RAW_DIR: str = Path(os.environ['RAW_DIR'])
 PROC_DIR: str = Path(os.environ['PROC_DIR'])
 PCT_DATA: str = float(os.environ['PCT_DATA'])
 
+# This block which I originally added as debug has saved me so many times... kep forgetting to source env
 if not make_folder(PROC_DIR):
-    raise Exception('hrm')
+    print("""\
+    Useful commands
+
+    source env.sh
+    env | grep DIR
+    """)
+    raise Exception(f'PROC DIR: {PROC_DIR} already exists. Did you forget to source env?')
+
 
 paths_train = list((RAW_DIR / 'train').glob('*.json'))
 random.seed(str(PROC_DIR))
