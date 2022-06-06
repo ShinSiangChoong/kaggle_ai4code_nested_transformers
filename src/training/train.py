@@ -122,8 +122,12 @@ def train(model, train_loader, val_loader, epochs):
         val_df.loc[val_df["cell_type"] == "markdown", "pred"] = y_pred
         y_dummy = val_df.sort_values("pred").groupby('id')['cell_id'].apply(list)
 
-        print("Preds score", kendall_tau(df_orders.loc[y_dummy.index], y_dummy))
-        print("Avg train loss", np.mean(loss_list))
+        metrics = {}
+        metrics['pred_score'] = kendall_tau(df_orders.loc[y_dummy.index], y_dummy)
+        metrics['avg_train_loss'] = np.mean(loss_list)
+        wandb.log(metrics)
+        print("Preds score", metrics['pred_score'])
+        print("Avg train loss", metrics['avg_train_loss'])
 
     return model, y_pred
 
@@ -137,6 +141,12 @@ def main(args):
     model = MarkdownModel(args.model_name_or_path)
     model = model.cuda()
     wandb.watch(model, log_freq=10000, log_graph=True, log="all")
+
+    # Tracking dump
+    print(model)
+    print(os.environ)
+    print(args)
+
     model, y_pred = train(model, train_loader, val_loader, epochs=args.epochs)
 
 

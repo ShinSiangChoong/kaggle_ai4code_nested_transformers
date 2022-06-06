@@ -6,4 +6,5 @@ python src/training/train.py \
 --batch_size 4 \
 --accumulation_steps 8 \
 --epochs 5 \
---n_workers 8
+--n_workers 8 \
+--wandb_mode online
