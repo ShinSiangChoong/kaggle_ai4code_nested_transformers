@@ -113,7 +113,7 @@ def train(model, train_loader, val_loader, epochs):
 
                 tbar.set_postfix(loss=metrics['loss'], lr=lr_to_4sf(scheduler.get_last_lr()))
 
-        torch.save(model.state_dict(), f"./outputs/model-{epoch}.bin")
+        torch.save(model.state_dict(), f"{args.output_dir}/model-{epoch}.bin")
 
         # TODO: Refactor to eval
         from src.eval import get_preds
