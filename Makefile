@@ -37,7 +37,7 @@ clean:
 lint:
 	flake8 src
 
-## Set up python interpreter environment
+## Set up development environment
 setup_dev:
 	sh scripts/make_untracked_dirs.sh
 
