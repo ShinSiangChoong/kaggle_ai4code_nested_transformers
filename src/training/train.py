@@ -29,6 +29,7 @@ def parse_args():
     # parser.add_argument('--val_path', type=str, default="./data/val.csv")
 
     parser.add_argument('--md_max_len', type=int, default=64)
+    parser.add_argument('--code_max_len', type=int, default=64)
     parser.add_argument('--total_max_len', type=int, default=512)
     parser.add_argument('--batch_size', type=int, default=8)
     parser.add_argument('--accumulation_steps', type=int, default=4)
