@@ -5,44 +5,34 @@ from torch.utils.data import DataLoader
 from src.data.datasets.baseline_data import MarkdownDataset
 
 
-def get_train_dl(args) -> DataLoader:
+def get_dl(is_train, args) -> DataLoader:
     """Get train data loader
     """
+    df_ids = (
+        pd.read_pickle(args.train_id_path) 
+        if is_train else pd.read_pickle(args.val_id_path)
+    )
+    df_codes = pd.read_pickle(args.codes_path)
+    df_mds = pd.read_pickle(args.mds_path)
+    df_mds = df_mds.loc[df_mds['id'].isin(df_ids)].reset_index(drop=True)
+    nb_meta = json.load(open(args.nb_meta_path, "rt"))
 
-    train_df_mark = pd.read_csv(args.train_mark_path).drop("parent_id", axis=1).dropna().reset_index(drop=True)
-    train_fts = json.load(open(args.train_features_path))
-
-    train_ds = MarkdownDataset(
-        train_df_mark,
+    ds = MarkdownDataset(
+        df_ids=df_ids,
+        df_codes=df_codes,
+        df_mds=df_mds,
+        nb_meta=nb_meta,
         model_name_or_path=args.model_name_or_path,
-        md_max_len=args.md_max_len,
-        code_max_len=args.code_max_len,
-        total_max_len=args.total_max_len,
-        fts=train_fts
-        )
-
-    train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, num_workers=args.n_workers,
-        pin_memory=False, drop_last=True)
-
-    return train_loader
-
-
-def get_val_dl(args) -> DataLoader:
-    """Get validation data loader
-    """
-    val_df_mark = pd.read_csv(args.val_mark_path).drop("parent_id", axis=1).dropna().reset_index(drop=True)
-    val_fts = json.load(open(args.val_features_path))
-
-    val_ds = MarkdownDataset(
-        val_df_mark,
-        model_name_or_path=args.model_name_or_path,
-        md_max_len=args.md_max_len,
-        code_max_len=args.code_max_len,
-        total_max_len=args.total_max_len,
-        fts=val_fts
-        )
-
-    val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=args.n_workers,
-        pin_memory=False, drop_last=False)
-
-    return val_loader
+        max_n_codes=args.max_n_codes,
+        max_md_len=args.max_md_len,
+        max_len=args.max_len
+    )
+    data_loader = DataLoader(
+        ds, 
+        batch_size=args.batch_size, 
+        shuffle=is_train, 
+        num_workers=args.n_workers,
+        pin_memory=False, 
+        drop_last=is_train
+    )
+    return data_loader

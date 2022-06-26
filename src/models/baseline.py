@@ -11,6 +11,6 @@ class MarkdownModel(nn.Module):
 
     def forward(self, ids, mask, fts):
         x = self.model(ids, mask)[0]
-        x = torch.cat((x[:, 0, :], fts), 1)
+        x = torch.cat((x, fts.unsqueeze(1).repeat(1, 512, 1)), 2)
         x = self.top(x)
-        return x
+        return x.squeeze(-1)

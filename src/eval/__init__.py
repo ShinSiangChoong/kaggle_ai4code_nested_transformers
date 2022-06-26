@@ -25,13 +25,13 @@ def get_preds(model: nn.Module, loader: DataLoader):
     preds = []
 
     with torch.inference_mode():
-        for idx, data in enumerate(pbar):
-            inputs, target = read_data(data)
-
+        for idx, d in enumerate(pbar):
+            for k in d:
+                d[k] = d[k].cuda()
             with torch.cuda.amp.autocast():
-                pred = model(*inputs)
+                pred = model(d['tokens'], d['masks'], d['md_pct'])[:, 0]
 
             preds.append(pred.detach().cpu().numpy().ravel())
-            labels.append(target.detach().cpu().numpy().ravel())
+            labels.append(d['labels'][:, 0].detach().cpu().numpy().ravel())
 
     return np.concatenate(labels), np.concatenate(preds)

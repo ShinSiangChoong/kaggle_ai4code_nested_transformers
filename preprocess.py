@@ -6,6 +6,9 @@ import os
 # General DS
 import numpy as np
 import pandas as pd
+from sklearn.model_selection import GroupShuffleSplit
+import multiprocessing as mp
+from transformers import AutoTokenizer
 
 from src.utils import nice_pbar, make_folder
 from src.data.preprocess import nb_to_df
@@ -14,6 +17,9 @@ from src.data.preprocess import nb_to_df
 RAW_DIR: str = Path(os.environ['RAW_DIR'])
 PROC_DIR: str = Path(os.environ['PROC_DIR'])
 PCT_DATA: str = float(os.environ['PCT_DATA'])
+# PCT_DATA = 0.0001
+
+MODEL_NAME = 'microsoft/codebert-base'
 
 # This block which I originally added as debug has saved me so many times... kep forgetting to source env
 if not make_folder(PROC_DIR):
@@ -33,100 +39,82 @@ random.shuffle(paths_train)
 N = int(PCT_DATA * len(paths_train))
 paths_train = paths_train[:N]
 
-pbar = nice_pbar(paths_train, total=len(paths_train), desc='Train NBs')
-notebooks_train = [nb_to_df(path) for path in pbar]
-df = (
-    pd.concat(notebooks_train)
-        .set_index('id', append=True)
-        .swaplevel()
-        .sort_index(level='id', sort_remaining=False)
+# Use multiprocess to improve speed
+with mp.Pool(mp.cpu_count()) as p:
+    notebooks_train = list(
+        p.map(
+            nb_to_df, 
+            nice_pbar(paths_train, total=len(paths_train), desc='Train NBs')
+        )
+    )
+
+df = pd.concat(notebooks_train).reset_index()
+df['code_idx'] = (df['cell_type'] == 'code').astype(np.int8)
+df['code_idx'] = df.groupby('id')['code_idx'].cumsum().astype(str)
+
+# Add a special number token for code cell to shows its rank within code cells
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+df.loc[df['cell_type'] == 'code', 'source'] = (
+    df.loc[df['cell_type'] == 'code', 'code_idx'] 
+    + tokenizer.sep_token + df.loc[df['cell_type'] == 'code', 'source']
 )
 
-df_orders = pd.read_csv(
-    RAW_DIR / 'train_orders.csv',
-    index_col='id',
-    squeeze=True,
-).str.split()  # Split the string representation of cell_ids into a list
+df_orders = pd.read_csv(RAW_DIR / 'train_orders.csv')
+df_orders['cell_order'] = df_orders['cell_order'].str.split()
+df_orders = df_orders.explode('cell_order')
+df_orders['rank'] = df_orders.groupby('id')['cell_order'].cumcount()
+df_orders['rank_pct'] = df_orders.groupby('id')['rank'].rank(pct=True)
+df_orders.rename(columns={'cell_order': 'cell_id'}, inplace=True)
 
+df_merge = df.merge(df_orders, how='left', on=['id', 'cell_id'])
+df_merge.loc[
+    df_merge['cell_type'] == 'markdown', 
+    ['source', 'id', 'rank', 'rank_pct']
+].reset_index(drop=True).to_pickle(PROC_DIR / 'mds.pickle')
+df_merge.loc[
+    df_merge['cell_type'] == 'code', 
+    ['source', 'id', 'code_idx', 'rank', 'rank_pct']
+].set_index('id').to_pickle(PROC_DIR / 'codes.pickle')
 
-def get_ranks(base, derived):
-    return [base.index(d) for d in derived]
-
-
-df_orders_ = df_orders.to_frame().join(
-    df.reset_index('cell_id').groupby('id')['cell_id'].apply(list),
-    how='right',
-)
-
-ranks = {}
-for id_, cell_order, cell_id in df_orders_.itertuples():
-    ranks[id_] = {'cell_id': cell_id, 'rank': get_ranks(cell_order, cell_id)}
-df_ranks = (
-    pd.DataFrame
-        .from_dict(ranks, orient='index')
-        .rename_axis('id')
-        .apply(pd.Series.explode)
-        .set_index('cell_id', append=True)
-)
-
+df_merge['n_codes'] = (df_merge['cell_type'] == 'code').astype(np.int8)
+df_merge['n_mds'] = (df_merge['cell_type'] == 'markdown').astype(np.int8)
+df_nb = df_merge.groupby('id', as_index=False).agg({
+    'cell_id': 'count',
+    'n_codes': 'sum',
+    'n_mds': 'sum'
+}).rename(columns={'cell_id': 'n_cells'})
+df_nb['md_pct'] = df_nb['n_mds'] / df_nb['n_cells']
 df_ancestors = pd.read_csv(RAW_DIR / 'train_ancestors.csv', index_col='id')
-df = df.reset_index().merge(df_ranks, on=["id", "cell_id"]).merge(df_ancestors, on=["id"])
-df["pct_rank"] = df["rank"] / df.groupby("id")["cell_id"].transform("count")
+df_nb['ancestor_id'] = df_nb['id'].map(df_ancestors['ancestor_id'])
 
-from sklearn.model_selection import GroupShuffleSplit
+# A dict for all notebook metadata
+nb_meta = df_nb.drop('ancestor_id', axis=1).set_index('id').to_dict(orient='index')
+for d in nb_meta.values():
+    d['n_codes'] = int(d['n_codes'])
+    d['n_mds'] = int(d['n_mds'])
+json.dump(
+    nb_meta, open(PROC_DIR / "nb_meta.json","wt")
+)
 
 NVALID = 0.1  # size of validation set
 splitter = GroupShuffleSplit(n_splits=1, test_size=NVALID, random_state=0)
-train_ind, val_ind = next(splitter.split(df, groups=df["ancestor_id"]))
-train_df = df.loc[train_ind].reset_index(drop=True)
-val_df = df.loc[val_ind].reset_index(drop=True)
+train_ind, val_ind = next(splitter.split(df_nb, groups=df_nb["ancestor_id"]))
+train_df = df_nb.loc[train_ind, 'id'].reset_index(drop=True)
+val_df = df_nb.loc[val_ind, 'id'].reset_index(drop=True)
 
-# Base markdown dataframes
-train_df_mark = train_df[train_df["cell_type"] == "markdown"].reset_index(drop=True)
-val_df_mark = val_df[val_df["cell_type"] == "markdown"].reset_index(drop=True)
-train_df_mark.to_csv(PROC_DIR / "train_mark.csv", index=False)
-val_df_mark.to_csv(PROC_DIR / "val_mark.csv", index=False)
-val_df.to_csv(PROC_DIR / "val.csv", index=False)
-train_df.to_csv(PROC_DIR / "train.csv", index=False)
+train_df.to_pickle(PROC_DIR / 'train_id.pickle')
+val_df.to_pickle(PROC_DIR / 'val_id.pickle')
 
-
-# Additional code cells
-def clean_code(cell):
-    return str(cell).replace("\\n", "\n")
-
-
-def sample_cells(cells, n):
-    cells = [clean_code(cell) for cell in cells]
-    if n >= len(cells):
-        return [cell[:200] for cell in cells]
-    else:
-        results = []
-        step = len(cells) / n
-        idx = 0
-        while int(np.round(idx)) < len(cells):
-            results.append(cells[int(np.round(idx))])
-            idx += step
-        assert cells[0] in results
-        if cells[-1] not in results:
-            results[-1] = cells[-1]
-        return results
-
-
-def get_features(df: pd.DataFrame):
-    features = dict()
-    df = df.sort_values("rank").reset_index(drop=True)
-    for idx, sub_df in nice_pbar(df.groupby("id"), df['id'].nunique(), "Get Feat"):
-        features[idx] = dict()
-        total_md = sub_df[sub_df.cell_type == "markdown"].shape[0]
-        code_sub_df = sub_df[sub_df.cell_type == "code"]
-        total_code = code_sub_df.shape[0]
-        codes = sample_cells(code_sub_df.source.values, 20)
-        features[idx]["total_code"] = total_code
-        features[idx]["total_md"] = total_md
-        features[idx]["codes"] = codes
-    return features
-
-val_fts = get_features(val_df)
-json.dump(val_fts, open(PROC_DIR / "val_fts.json","wt"))
-train_fts = get_features(train_df)
-json.dump(train_fts, open(PROC_DIR / "train_fts.json","wt"))
+df_merge.loc[
+    df_merge['id'].isin(val_df),
+    ['id', 'cell_type', 'cell_id', 'source', 'code_idx', 'rank', 'rank_pct']
+].to_csv(PROC_DIR / 'val.csv')
+print(df_merge.loc[
+    df_merge['id'].isin(val_df),
+    ['id', 'cell_type', 'cell_id', 'source', 'code_idx', 'rank', 'rank_pct']
+].shape)
+print(df_merge.loc[
+    df_merge['id'].isin(val_df) & 
+    (df_merge['cell_type'] == 'markdown'),
+    ['id', 'cell_type', 'cell_id', 'source', 'code_idx', 'rank', 'rank_pct']
+].shape)

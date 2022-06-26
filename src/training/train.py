@@ -12,7 +12,7 @@ import torch
 from transformers import AdamW, get_linear_schedule_with_warmup
 
 
-from src.data.quickdata import get_train_dl, get_val_dl
+from src.data.quickdata import get_dl
 from src.utils import nice_pbar, make_folder, lr_to_4sf
 from src.eval.metrics import kendall_tau
 from src.models.baseline import MarkdownModel
@@ -28,9 +28,10 @@ def parse_args():
     # parser.add_argument('--val_features_path', type=str, default='./data/val_fts.json')
     # parser.add_argument('--val_path', type=str, default="./data/val.csv")
 
-    parser.add_argument('--md_max_len', type=int, default=64)
-    parser.add_argument('--code_max_len', type=int, default=64)
-    parser.add_argument('--total_max_len', type=int, default=512)
+    parser.add_argument('--max_n_codes', type=int, default=20)
+    parser.add_argument('--max_md_len', type=int, default=64)
+    parser.add_argument('--max_len', type=int, default=512)
+    
     parser.add_argument('--batch_size', type=int, default=8)
     parser.add_argument('--accumulation_steps', type=int, default=4)
     parser.add_argument('--epochs', type=int, default=5)
@@ -42,10 +43,11 @@ def parse_args():
     args = parser.parse_args()
 
     PROC_DIR = Path(os.environ['PROC_DIR'])
-    args.train_mark_path = PROC_DIR / "train_mark.csv"
-    args.train_features_path = PROC_DIR / "train_fts.json"
-    args.val_mark_path = PROC_DIR / "val_mark.csv"
-    args.val_features_path = PROC_DIR / "val_fts.json"
+    args.nb_meta_path = PROC_DIR / "nb_meta.json"
+    args.codes_path = PROC_DIR / "codes.pickle"
+    args.mds_path = PROC_DIR / "mds.pickle"
+    args.train_id_path = PROC_DIR / "train_id.pickle"
+    args.val_id_path = PROC_DIR / "val_id.pickle"
     args.val_path = PROC_DIR / "val.csv"
     return args
 
@@ -76,7 +78,7 @@ def train(model, train_loader, val_loader, epochs):
     scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0.05 * num_train_optimization_steps,
                                                 num_training_steps=num_train_optimization_steps)  # PyTorch scheduler
 
-    criterion = torch.nn.L1Loss()
+    criterion = torch.nn.L1Loss(reduction='none')
     scaler = torch.cuda.amp.GradScaler()
 
     for epoch in range(1, epochs + 1):
@@ -87,12 +89,13 @@ def train(model, train_loader, val_loader, epochs):
 
         tbar = nice_pbar(train_loader, len(train_loader), f"Train {epoch}")
 
-        for idx, data in enumerate(tbar):
-            inputs, target = read_data(data)
-
+        for idx, d in enumerate(tbar):
+            for k in d:
+                d[k] = d[k].cuda()
             with torch.cuda.amp.autocast():
-                pred = model(*inputs)
-                loss = criterion(pred, target)
+                pred = model(d['tokens'], d['masks'], d['md_pct'])
+                loss = criterion(pred, d['labels'])
+                loss = (loss*d['loss_ws']).sum() / d['loss_ws'].sum()
             scaler.scale(loss).backward()
 
             if idx % args.accumulation_steps == 0 or idx == len(tbar) - 1:
@@ -114,6 +117,8 @@ def train(model, train_loader, val_loader, epochs):
 
                 tbar.set_postfix(loss=metrics['loss'], lr=lr_to_4sf(scheduler.get_last_lr()))
 
+            if scheduler.get_last_lr()[0] == 0:
+                break
         torch.save(model.state_dict(), f"{args.output_dir}/model-{epoch}.bin")
 
         # TODO: Refactor to eval
@@ -129,6 +134,8 @@ def train(model, train_loader, val_loader, epochs):
         wandb.log(metrics)
         print("Preds score", metrics['pred_score'])
         print("Avg train loss", metrics['avg_train_loss'])
+        if scheduler.get_last_lr()[0] == 0:
+            break
 
     return model, y_pred
 
@@ -136,8 +143,8 @@ def train(model, train_loader, val_loader, epochs):
 def main(args):
     make_folder(args.output_dir)
 
-    train_loader = get_train_dl(args)
-    val_loader = get_val_dl(args)
+    train_loader = get_dl(is_train=True, args=args)
+    val_loader = get_dl(is_train=False, args=args)
 
     model = MarkdownModel(args.model_name_or_path)
     model = model.cuda()
