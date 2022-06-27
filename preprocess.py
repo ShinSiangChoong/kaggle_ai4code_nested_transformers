@@ -63,7 +63,9 @@ df_orders = pd.read_csv(RAW_DIR / 'train_orders.csv')
 df_orders['cell_order'] = df_orders['cell_order'].str.split()
 df_orders = df_orders.explode('cell_order')
 df_orders['rank'] = df_orders.groupby('id')['cell_order'].cumcount()
-df_orders['rank_pct'] = df_orders.groupby('id')['rank'].rank(pct=True)
+df_orders['rank_pct'] = (
+    df_orders['rank'] / df_orders.groupby('id')['cell_id'].transform('count')
+)
 df_orders.rename(columns={'cell_order': 'cell_id'}, inplace=True)
 
 df_merge = df.merge(df_orders, how='left', on=['id', 'cell_id'])
