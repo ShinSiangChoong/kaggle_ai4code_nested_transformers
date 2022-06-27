@@ -111,12 +111,3 @@ df_merge.loc[
     df_merge['id'].isin(val_df),
     ['id', 'cell_type', 'cell_id', 'source', 'code_idx', 'rank', 'rank_pct']
 ].to_csv(PROC_DIR / 'val.csv')
-print(df_merge.loc[
-    df_merge['id'].isin(val_df),
-    ['id', 'cell_type', 'cell_id', 'source', 'code_idx', 'rank', 'rank_pct']
-].shape)
-print(df_merge.loc[
-    df_merge['id'].isin(val_df) & 
-    (df_merge['cell_type'] == 'markdown'),
-    ['id', 'cell_type', 'cell_id', 'source', 'code_idx', 'rank', 'rank_pct']
-].shape)
