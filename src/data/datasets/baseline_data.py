@@ -50,7 +50,7 @@ class MarkdownDataset(Dataset):
             None,
             add_special_tokens=True,
             max_length=self.max_md_len,
-            padding=False,
+            padding='max_length',
             return_token_type_ids=True,
             truncation=True
         )
@@ -62,7 +62,7 @@ class MarkdownDataset(Dataset):
             df['source'].tolist(),
             add_special_tokens=True,
             max_length=max_code_len,
-            padding=False,
+            padding='max_length',
             truncation=True
         )   
         
