@@ -16,7 +16,7 @@ def nb_to_df(path: Path) -> pd.DataFrame:
     return (
         pd.read_json(
             path,
-            dtype={'cell_type': 'category', 'source': 'str'})
+            dtype={'cell_type': 'str', 'source': 'str'})
             .assign(id=path.stem)
             .rename_axis('cell_id')
     )

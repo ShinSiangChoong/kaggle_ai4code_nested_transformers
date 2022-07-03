@@ -21,17 +21,17 @@ def get_preds(model: nn.Module, loader: DataLoader):
 
     pbar = nice_pbar(loader, len(loader), "Validation")
 
-    labels = []
+    # labels = []
     preds = []
 
     with torch.inference_mode():
         for idx, d in enumerate(pbar):
             for k in d:
-                d[k] = d[k].cuda()
+                if k != 'ids':
+                    d[k] = d[k].cuda()
             with torch.cuda.amp.autocast():
-                pred = model(d['tokens'], d['masks'], d['md_pct'])[:, 0]
-
-            preds.append(pred.detach().cpu().numpy().ravel())
-            labels.append(d['labels'][:, 0].detach().cpu().numpy().ravel())
-
-    return np.concatenate(labels), np.concatenate(preds)
+                pred = model(d['tokens'], d['masks'], d['md_pct'], d['label_masks'])
+            indices = np.where(d['label_masks'].cpu().numpy() == 1)
+            pred = pred.detach().cpu().numpy()
+            preds.append(pred[indices])
+    return np.concatenate(preds)

@@ -14,12 +14,12 @@ from src.utils import nice_pbar, make_folder
 from src.data.preprocess import nb_to_df
 
 
+MAX_N_CELLS = 128
+MODEL_NAME = 'microsoft/codebert-base'
 RAW_DIR: str = Path(os.environ['RAW_DIR'])
 PROC_DIR: str = Path(os.environ['PROC_DIR'])
 PCT_DATA: str = float(os.environ['PCT_DATA'])
 # PCT_DATA = 0.0001
-
-MODEL_NAME = 'microsoft/codebert-base'
 
 # This block which I originally added as debug has saved me so many times... kep forgetting to source env
 if not make_folder(PROC_DIR):
@@ -51,12 +51,17 @@ with mp.Pool(mp.cpu_count()) as p:
 df = pd.concat(notebooks_train).reset_index()
 df['code_idx'] = (df['cell_type'] == 'code').astype(np.int8)
 df['code_idx'] = df.groupby('id')['code_idx'].cumsum().astype(str)
+df.loc[df['cell_type'] == 'markdown', 'code_idx'] = 'null'
+df.loc[df['cell_type'] == 'markdown', 'cell_type'] = 'mark'
 
-# Add a special number token for code cell to shows its rank within code cells
+# Add cell type and cell index
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-df.loc[df['cell_type'] == 'code', 'source'] = (
-    df.loc[df['cell_type'] == 'code', 'code_idx'] 
-    + tokenizer.sep_token + df.loc[df['cell_type'] == 'code', 'source']
+df['source'] = (
+    df['cell_type'] 
+    + tokenizer.sep_token 
+    + df['code_idx'] 
+    + tokenizer.sep_token 
+    + df['source']
 )
 
 df_orders = pd.read_csv(RAW_DIR / 'train_orders.csv')
@@ -67,19 +72,14 @@ df_orders['rank_pct'] = (
     df_orders['rank'] / df_orders.groupby('id')['cell_order'].transform('count')
 )
 df_orders.rename(columns={'cell_order': 'cell_id'}, inplace=True)
-
 df_merge = df.merge(df_orders, how='left', on=['id', 'cell_id'])
-df_merge.loc[
-    df_merge['cell_type'] == 'markdown', 
-    ['source', 'id', 'rank', 'rank_pct']
-].reset_index(drop=True).to_pickle(PROC_DIR / 'mds.pickle')
-df_merge.loc[
-    df_merge['cell_type'] == 'code', 
-    ['source', 'id', 'code_idx', 'rank', 'rank_pct']
-].set_index('id').to_pickle(PROC_DIR / 'codes.pickle')
+df_merge[
+    ['id', 'cell_id', 'cell_type', 'code_idx', 'source', 'rank', 'rank_pct']
+].set_index('id').to_pickle(PROC_DIR / 'cells.pickle')
 
 df_merge['n_codes'] = (df_merge['cell_type'] == 'code').astype(np.int8)
-df_merge['n_mds'] = (df_merge['cell_type'] == 'markdown').astype(np.int8)
+df_merge['n_mds'] = (df_merge['cell_type'] == 'mark').astype(np.int8)
+
 df_nb = df_merge.groupby('id', as_index=False).agg({
     'cell_id': 'count',
     'n_codes': 'sum',
@@ -104,10 +104,12 @@ train_ind, val_ind = next(splitter.split(df_nb, groups=df_nb["ancestor_id"]))
 train_df = df_nb.loc[train_ind, 'id'].reset_index(drop=True)
 val_df = df_nb.loc[val_ind, 'id'].reset_index(drop=True)
 
+train_df = train_df[
+    train_df.map(lambda x: nb_meta[x]['n_cells']) <= MAX_N_CELLS
+].reset_index(drop=True)
+val_df = val_df[
+    val_df.map(lambda x: nb_meta[x]['n_cells']) <= MAX_N_CELLS
+].reset_index(drop=True)
+
 train_df.to_pickle(PROC_DIR / 'train_id.pickle')
 val_df.to_pickle(PROC_DIR / 'val_id.pickle')
-
-df_merge.loc[
-    df_merge['id'].isin(val_df),
-    ['id', 'cell_type', 'cell_id', 'source', 'code_idx', 'rank', 'rank_pct']
-].to_csv(PROC_DIR / 'val.csv')

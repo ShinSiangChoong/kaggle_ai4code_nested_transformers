@@ -2,7 +2,7 @@ import json
 import pandas as pd
 from torch.utils.data import DataLoader
 
-from src.data.datasets.baseline_data import MarkdownDataset
+from src.data.datasets.baseline_data import MarkdownDataset, NotebookDataset
 
 
 def get_dl(is_train, args) -> DataLoader:
@@ -12,19 +12,15 @@ def get_dl(is_train, args) -> DataLoader:
         pd.read_pickle(args.train_id_path) 
         if is_train else pd.read_pickle(args.val_id_path)
     )
-    df_codes = pd.read_pickle(args.codes_path)
-    df_mds = pd.read_pickle(args.mds_path)
-    df_mds = df_mds.loc[df_mds['id'].isin(df_ids)].reset_index(drop=True)
+    df_cells = pd.read_pickle(args.cells_path)
     nb_meta = json.load(open(args.nb_meta_path, "rt"))
 
-    ds = MarkdownDataset(
+    ds = NotebookDataset(
         df_ids=df_ids,
-        df_codes=df_codes,
-        df_mds=df_mds,
+        df_cells=df_cells,
         nb_meta=nb_meta,
         model_name_or_path=args.model_name_or_path,
-        max_n_codes=args.max_n_codes,
-        max_md_len=args.max_md_len,
+        max_n_cells=args.max_n_cells,
         max_len=args.max_len
     )
     data_loader = DataLoader(

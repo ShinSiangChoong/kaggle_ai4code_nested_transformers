@@ -127,3 +127,69 @@ class MarkdownDataset(Dataset):
     
     def __len__(self) -> int:
         return self.df_mds.shape[0]
+
+
+class NotebookDataset(Dataset):
+    def __init__(
+        self,
+        df_ids: pd.DataFrame,
+        df_cells: pd.DataFrame,
+        nb_meta: dict,
+        model_name_or_path,
+        max_n_cells,
+        max_len,
+    ) -> None:
+        """
+        Args:
+        
+        """
+        super().__init__()
+        self.df_ids = df_ids
+        self.df_cells = df_cells
+        self.nb_meta = nb_meta
+        self.max_n_cells = max_n_cells
+        self.max_len = max_len
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
+
+    def __getitem__(self, index):
+        nb_id = self.df_ids.loc[index]
+        df_cell = self.df_cells.loc[nb_id]
+        # n_pads = int(max(0, self.max_n_cells-df_cell.shape[0]-1))
+        n_pads = int(max(0, self.max_n_cells-df_cell.shape[0]))
+        texts = (
+            # ['starting' + self.tokenizer.sep_token + 'null'] + 
+            df_cell['source'].tolist() + 
+            n_pads * ['padding' + self.tokenizer.sep_token + 'null']
+        )
+        labels = torch.FloatTensor(
+            # [0] + 
+            df_cell['rank_pct'].tolist() + 
+            n_pads * [0]
+        )
+        label_masks = torch.ones(labels.shape) 
+        # label_masks[0] = 0
+        # label_masks[df_cell.shape[0]+1:] = 0
+        label_masks[df_cell.shape[0]:] = 0
+        
+        inputs = self.tokenizer.batch_encode_plus(
+            texts,
+            add_special_tokens=True,
+            max_length=self.max_len,
+            padding="max_length",
+            truncation=True
+        )
+        tokens = torch.LongTensor(inputs['input_ids'])
+        masks = torch.LongTensor(inputs['attention_mask'])
+        md_pct = torch.FloatTensor([self.nb_meta[nb_id]['md_pct']])        
+        
+        return {
+            'ids': [nb_id],
+            'tokens': tokens,
+            'masks': masks,
+            'md_pct': md_pct,
+            'labels': labels,
+            'label_masks': label_masks
+        }
+    
+    def __len__(self) -> int:
+        return self.df_ids.shape[0]
