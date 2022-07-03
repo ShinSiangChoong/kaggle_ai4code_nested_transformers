@@ -1,11 +1,10 @@
 #!/usr/bin/sh
 
 python src/training/train.py \
---max_n_codes 20 \
---max_md_len 64 \
---max_len 512 \
---batch_size 4 \
---accumulation_steps 8 \
+--max_n_cells 128 \
+--max_len 64 \
+--batch_size 1 \
+--accumulation_steps 1 \
 --epochs 5 \
---n_workers 8 \
+--n_workers 1 \
 --wandb_mode online
