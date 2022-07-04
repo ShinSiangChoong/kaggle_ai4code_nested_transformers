@@ -127,15 +127,11 @@ def train(model, train_loader, val_loader, epochs):
         # TODO: Refactor to eval
         from src.eval import get_preds
         y_pred = get_preds(model, val_loader)
-        val_df["pred1"] = val_df.groupby(["id", "cell_type"])["rank"].rank(pct=True)
-        val_df["pred2"] = y_pred
-        val_df.loc[val_df["cell_type"] == "mark", "pred1"] = val_df.loc[val_df["cell_type"] == "mark", "pred2"]
-        y_dummy1 = val_df.sort_values("pred1").groupby('id')['cell_id'].apply(list)
-        y_dummy2 = val_df.sort_values("pred2").groupby('id')['cell_id'].apply(list)
+        val_df["pred"] = y_pred
+        y_dummy = val_df.sort_values("pred").groupby('id')['cell_id'].apply(list)
 
         metrics = {}
-        metrics['pred_score1'] = kendall_tau(df_orders.loc[y_dummy1.index], y_dummy1)
-        metrics['pred_score2'] = kendall_tau(df_orders.loc[y_dummy2.index], y_dummy2)
+        metrics['pred_score1'] = kendall_tau(df_orders.loc[y_dummy.index], y_dummy)
         metrics['avg_train_loss'] = np.mean(loss_list)
         wandb.log(metrics)
         print("Preds score1", metrics['pred_score1'])

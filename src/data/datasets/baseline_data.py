@@ -163,7 +163,7 @@ class NotebookDataset(Dataset):
         )
         labels = torch.FloatTensor(
             # [0] + 
-            df_cell['rank_pct'].tolist() + 
+            df_cell['rank'].tolist() + 
             n_pads * [0]
         )
         label_masks = torch.ones(labels.shape) 
