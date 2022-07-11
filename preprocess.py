@@ -94,7 +94,7 @@ df_merge[[
     'rank', 
     'rank_pct', 
     'next_cell_idx'
-]].set_index(['id', 'cell_type']).to_pickle(DATA_DIR / 'cells.pkl')
+]].set_index(['id', 'cell_type']).to_pickle(PROC_DIR / 'cells.pkl')
 
 df_merge['n_codes'] = (df_merge['cell_type'] == 'code').astype(np.int8)
 df_merge['n_mds'] = (df_merge['cell_type'] == 'mark').astype(np.int8)

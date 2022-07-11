@@ -68,7 +68,7 @@ class NotebookModel(nn.Module):
             position_ids=pos
         )[0]
 
-        n = x.shape[1]-1
+        n = x.shape[1]-1  # n = max_n_cells + 1
         curr = x[:, :-1].unsqueeze(2).repeat(1, 1, n, 1)  # each curr cell * n
         nxt = x[:, 1:].unsqueeze(1).repeat(1, n, 1, 1)  # n * each next cell
         # after cat: (bs, curr_idx, nxt_idx, emb_dim*2)

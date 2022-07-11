@@ -2,7 +2,7 @@ import json
 import pandas as pd
 from torch.utils.data import DataLoader
 
-from src.data.datasets.baseline_data import MarkdownDataset, NotebookDataset
+from src.data.datasets.baseline_data import NotebookDataset
 
 
 def get_dl(is_train, args) -> DataLoader:
@@ -21,7 +21,8 @@ def get_dl(is_train, args) -> DataLoader:
         nb_meta=nb_meta,
         model_name_or_path=args.model_name_or_path,
         max_n_cells=args.max_n_cells,
-        max_len=args.max_len
+        max_len=args.max_len,
+        is_train=False
     )
     data_loader = DataLoader(
         ds, 

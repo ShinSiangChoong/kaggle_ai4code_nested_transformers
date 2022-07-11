@@ -34,7 +34,7 @@ def parse_args():
     parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--accumulation_steps', type=int, default=4)
     parser.add_argument('--epochs', type=int, default=5)
-    parser.add_argument('--n_workers', type=int, default=8)
+    parser.add_argument('--n_workers', type=int, default=1)
 
     parser.add_argument('--wandb_mode', type=str, default="offline")
     parser.add_argument('--output_dir', type=str, default="./outputs")
@@ -79,7 +79,7 @@ def train(model, train_loader, val_loader, epochs):
     scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0.05 * num_train_optimization_steps,
                                                 num_training_steps=num_train_optimization_steps)  # PyTorch scheduler
 
-    criterion = torch.nn.L1Loss()
+    criterion = torch.nn.CrossEntropyLoss(reduction='none')
     # criterion = torch.nn.L1Loss(reduction='none')
     scaler = torch.cuda.amp.GradScaler()
 
@@ -93,7 +93,7 @@ def train(model, train_loader, val_loader, epochs):
 
         for idx, d in enumerate(tbar):
             for k in d:
-                if k != 'nb_id':
+                if k != 'nb_ids':
                     d[k] = d[k].cuda()
             with torch.cuda.amp.autocast():
                 pred = model(
@@ -106,6 +106,7 @@ def train(model, train_loader, val_loader, epochs):
                     d['md_pct']
                 ).masked_fill(d['label_masks'], -6.5e4)
                 loss = criterion(pred.permute(0, 2, 1), d['labels']) * d['nb_masks'][:, :-1]
+                loss = loss.sum() / d['nb_masks'][:, :-1].sum()
                 # loss = (loss*d['loss_ws']).sum() / d['loss_ws'].sum()
             scaler.scale(loss).backward()
 
@@ -134,21 +135,18 @@ def train(model, train_loader, val_loader, epochs):
 
         # TODO: Refactor to eval
         from src.eval import get_preds
-        y_pred = get_preds(model, val_loader, val_df)
-        val_df["pred"] = y_pred
-        y_dummy = val_df.sort_values("pred").groupby('id')['cell_id'].apply(list)
+        preds = get_preds(model, val_loader, val_df)
 
         metrics = {}
-        metrics['pred_score1'] = kendall_tau(df_orders.loc[y_dummy.index], y_dummy)
+        metrics['pred_score'] = kendall_tau(df_orders.loc[preds.index], preds)
         metrics['avg_train_loss'] = np.mean(loss_list)
         wandb.log(metrics)
-        print("Preds score1", metrics['pred_score1'])
-        print("Preds score2", metrics['pred_score2'])
+        print("Preds score1", metrics['pred_score'])
         print("Avg train loss", metrics['avg_train_loss'])
         if scheduler.get_last_lr()[0] == 0:
             break
 
-    return model, y_pred
+    return model, preds
 
 
 def main(args):
