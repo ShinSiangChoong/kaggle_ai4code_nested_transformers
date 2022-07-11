@@ -43,9 +43,9 @@ def parse_args():
 
     PROC_DIR = Path(os.environ['PROC_DIR'])
     args.nb_meta_path = PROC_DIR / "nb_meta.json"
-    args.cells_path = PROC_DIR / "cells.pickle"
-    args.train_id_path = PROC_DIR / "train_id.pickle"
-    args.val_id_path = PROC_DIR / "val_id.pickle"
+    args.cells_path = PROC_DIR / "cells.pkl"
+    args.train_id_path = PROC_DIR / "train_id.pkl"
+    args.val_id_path = PROC_DIR / "val_id.pkl"
     args.val_path = PROC_DIR / "val.csv"
     return args
 
@@ -56,8 +56,8 @@ def train(model, train_loader, val_loader, epochs):
     # TODO: Refactor to data
     DATA_DIR = Path(os.environ['RAW_DIR'])
     PROC_DIR = Path(os.environ['PROC_DIR'])
-    val_ids = pd.read_pickle(PROC_DIR / 'val_id.pickle')
-    val_df = pd.read_pickle(PROC_DIR / 'cells.pickle')
+    val_ids = pd.read_pickle(PROC_DIR / 'val_id.pkl')
+    val_df = pd.read_pickle(PROC_DIR / 'cells.pkl')
     val_df = val_df.loc[val_ids.tolist()]
     df_orders = pd.read_csv(
         DATA_DIR / 'train_orders.csv',
@@ -93,11 +93,19 @@ def train(model, train_loader, val_loader, epochs):
 
         for idx, d in enumerate(tbar):
             for k in d:
-                if k != 'ids':
+                if k != 'nb_id':
                     d[k] = d[k].cuda()
             with torch.cuda.amp.autocast():
-                pred = model(d['tokens'], d['masks'], d['md_pct'], d['label_masks'])
-                loss = criterion(pred*d['label_masks'], d['labels'])
+                pred = model(
+                    d['tokens'], 
+                    d['cell_masks'], 
+                    d['nb_masks'], 
+                    d['label_masks'],
+                    d['pos'],
+                    d['start'], 
+                    d['md_pct']
+                ).masked_fill(d['label_masks'], -6.5e4)
+                loss = criterion(pred.permute(0, 2, 1), d['labels']) * d['nb_masks'][:, :-1]
                 # loss = (loss*d['loss_ws']).sum() / d['loss_ws'].sum()
             scaler.scale(loss).backward()
 
@@ -126,7 +134,7 @@ def train(model, train_loader, val_loader, epochs):
 
         # TODO: Refactor to eval
         from src.eval import get_preds
-        y_pred = get_preds(model, val_loader)
+        y_pred = get_preds(model, val_loader, val_df)
         val_df["pred"] = y_pred
         y_dummy = val_df.sort_values("pred").groupby('id')['cell_id'].apply(list)
 

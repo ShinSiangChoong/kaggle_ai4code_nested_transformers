@@ -14,7 +14,7 @@ from src.utils import nice_pbar, make_folder
 from src.data.preprocess import nb_to_df
 
 
-MAX_N_CELLS = 128
+MAX_N_CELLS = 126
 MODEL_NAME = 'microsoft/codebert-base'
 RAW_DIR: str = Path(os.environ['RAW_DIR'])
 PROC_DIR: str = Path(os.environ['PROC_DIR'])
@@ -49,17 +49,15 @@ with mp.Pool(mp.cpu_count()) as p:
     )
 
 df = pd.concat(notebooks_train).reset_index()
-df['code_idx'] = (df['cell_type'] == 'code').astype(np.int8)
-df['code_idx'] = df.groupby('id')['code_idx'].cumsum().astype(str)
-df.loc[df['cell_type'] == 'markdown', 'code_idx'] = 'null'
 df.loc[df['cell_type'] == 'markdown', 'cell_type'] = 'mark'
+df['cell_idx'] = df.groupby('id')['cell_id'].cumcount() # [0:MAX_N_CELLS-1]
+df['pos'] = df['cell_idx'] + 1 # [1:MAX_N_CELLS]
+df.loc[df['cell_type'] == 'mark', 'pos'] = MAX_N_CELLS + 1
 
 # Add cell type and cell index
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 df['source'] = (
     df['cell_type'] 
-    + tokenizer.sep_token 
-    + df['code_idx'] 
     + tokenizer.sep_token 
     + df['source']
 )
@@ -73,9 +71,30 @@ df_orders['rank_pct'] = (
 )
 df_orders.rename(columns={'cell_order': 'cell_id'}, inplace=True)
 df_merge = df.merge(df_orders, how='left', on=['id', 'cell_id'])
-df_merge[
-    ['id', 'cell_id', 'cell_type', 'code_idx', 'source', 'rank', 'rank_pct']
-].set_index('id').to_pickle(PROC_DIR / 'cells.pickle')
+
+df_tmp = df_merge.sort_values(['id', 'rank']).reset_index(drop=True)
+df_tmp['next_cell_idx'] = df_tmp.groupby('id')['cell_idx'].shift(-1)
+df_tmp['next_cell_idx'].fillna(
+    df_tmp.groupby('id')['cell_idx'].transform(max)+1, inplace=True
+)
+df_tmp['unique_cell_id'] = (
+    df_tmp['id'].astype(str) + '_' + df_tmp['cell_idx'].astype(str)
+)
+df_merge['next_cell_idx'] = (
+    df_merge['id'].astype(str) + '_' + df_merge['cell_idx'].astype(str)
+).map(df_tmp.set_index(['unique_cell_id'])['next_cell_idx']).astype(int)
+
+df_merge[[
+    'id', 
+    'cell_id', 
+    'cell_idx', 
+    'cell_type', 
+    'pos', 
+    'source', 
+    'rank', 
+    'rank_pct', 
+    'next_cell_idx'
+]].set_index(['id', 'cell_type']).to_pickle(DATA_DIR / 'cells.pkl')
 
 df_merge['n_codes'] = (df_merge['cell_type'] == 'code').astype(np.int8)
 df_merge['n_mds'] = (df_merge['cell_type'] == 'mark').astype(np.int8)
@@ -88,12 +107,14 @@ df_nb = df_merge.groupby('id', as_index=False).agg({
 df_nb['md_pct'] = df_nb['n_mds'] / df_nb['n_cells']
 df_ancestors = pd.read_csv(RAW_DIR / 'train_ancestors.csv', index_col='id')
 df_nb['ancestor_id'] = df_nb['id'].map(df_ancestors['ancestor_id'])
+df_nb['1st_cell_idx'] = df_nb['id'].map(df_tmp.groupby('id')['cell_idx'].first())
 
 # A dict for all notebook metadata
 nb_meta = df_nb.drop('ancestor_id', axis=1).set_index('id').to_dict(orient='index')
 for d in nb_meta.values():
     d['n_codes'] = int(d['n_codes'])
     d['n_mds'] = int(d['n_mds'])
+    d['1st_cell_idx'] = int(d['1st_cell_idx'])
 json.dump(
     nb_meta, open(PROC_DIR / "nb_meta.json","wt")
 )
@@ -111,5 +132,5 @@ val_df = val_df[
     val_df.map(lambda x: nb_meta[x]['n_cells']) <= MAX_N_CELLS
 ].reset_index(drop=True)
 
-train_df.to_pickle(PROC_DIR / 'train_id.pickle')
-val_df.to_pickle(PROC_DIR / 'val_id.pickle')
+train_df.to_pickle(PROC_DIR / 'train_id.pkl')
+val_df.to_pickle(PROC_DIR / 'val_id.pkl')
