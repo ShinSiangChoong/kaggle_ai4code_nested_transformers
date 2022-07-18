@@ -19,7 +19,7 @@ MODEL_NAME = 'microsoft/codebert-base'
 RAW_DIR: str = Path(os.environ['RAW_DIR'])
 PROC_DIR: str = Path(os.environ['PROC_DIR'])
 PCT_DATA: str = float(os.environ['PCT_DATA'])
-# PCT_DATA = 0.0001
+# PCT_DATA = 0.001
 
 # This block which I originally added as debug has saved me so many times... kep forgetting to source env
 if not make_folder(PROC_DIR):

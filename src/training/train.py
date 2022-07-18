@@ -2,6 +2,7 @@
 from pathlib import Path
 import argparse
 import os
+import json
 # General DS
 import numpy as np
 import pandas as pd
@@ -59,12 +60,14 @@ def train(model, train_loader, val_loader, epochs):
     val_ids = pd.read_pickle(PROC_DIR / 'val_id.pkl')
     val_df = pd.read_pickle(PROC_DIR / 'cells.pkl')
     val_df = val_df.loc[val_ids.tolist()]
+    nb_meta = json.load(open(PROC_DIR / "nb_meta.json", "rt"))
+
     df_orders = pd.read_csv(
         DATA_DIR / 'train_orders.csv',
         index_col='id',
         squeeze=True,
     ).str.split()
-
+    
     # Creating optimizer and lr schedulers
     param_optimizer = list(model.named_parameters())
     no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
@@ -82,6 +85,16 @@ def train(model, train_loader, val_loader, epochs):
     criterion = torch.nn.CrossEntropyLoss(reduction='none')
     # criterion = torch.nn.L1Loss(reduction='none')
     scaler = torch.cuda.amp.GradScaler()
+
+    
+    from src.eval import get_preds
+    # baseline score
+    preds = val_df.groupby('id')['cell_id'].apply(list)
+    print('baseline score:', kendall_tau(df_orders.loc[preds.index], preds))
+
+    # initial score
+    # preds = get_preds(model, val_loader, val_df, nb_meta)
+    # print('initial score:', kendall_tau(df_orders.loc[preds.index], preds))
 
     for epoch in range(1, epochs + 1):
         model.train()
@@ -135,17 +148,17 @@ def train(model, train_loader, val_loader, epochs):
 
         # TODO: Refactor to eval
         from src.eval import get_preds
-        preds = get_preds(model, val_loader, val_df)
+        preds = get_preds(model, val_loader, val_df, nb_meta)
 
         metrics = {}
         metrics['pred_score'] = kendall_tau(df_orders.loc[preds.index], preds)
         metrics['avg_train_loss'] = np.mean(loss_list)
         wandb.log(metrics)
-        print("Preds score1", metrics['pred_score'])
+        print("Preds score", metrics['pred_score'])
         print("Avg train loss", metrics['avg_train_loss'])
         if scheduler.get_last_lr()[0] == 0:
             break
-
+        
     return model, preds
 
 
