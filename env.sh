@@ -4,8 +4,8 @@ else
     export DS_DIR='/data/datasets'
 fi
 export RAW_DIR="$DS_DIR/ai4code"
-export PROC_DIR="$DS_DIR/proc-ai4code-20pct"
-export PCT_DATA=0.2
+export PROC_DIR="$DS_DIR/proc-ai4code"
+export PCT_DATA=1
 
 clearenv () {
     unset RAW_DIR

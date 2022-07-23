@@ -4,27 +4,14 @@ import torch.nn.functional as F
 from transformers import AutoModel
 
 
-class MarkdownModel(nn.Module):
-    def __init__(self, model_path):
-        super(MarkdownModel, self).__init__()
-        self.model = AutoModel.from_pretrained(model_path)
-        self.top = nn.Linear(769, 1)
-
-    def forward(self, ids, mask, fts):
-        x = self.model(ids, mask)[0]
-        x = torch.cat((x, fts.unsqueeze(1).repeat(1, 512, 1)), 2)
-        x = self.top(x)
-        return x.squeeze(-1)
-
-
 class Linear(nn.Linear):
     def reset_parameters(self) -> None:
-        nn.init.kaiming_normal_(self.weight)
+        nn.init.xavier_uniform_(self.weight)
         if self.bias is not None:
             self.bias.data.fill_(0.01) 
             
 
-class Attention(torch.nn.Module):
+class Attention(nn.Module):
     def __init__(self, dim):
         super().__init__()
         self.W = Linear(dim, dim, bias=False)
@@ -35,50 +22,79 @@ class Attention(torch.nn.Module):
         weights.masked_fill_(masks, -6.5e4)
         weights = F.softmax(weights, dim=2)
         return torch.sum(weights * keys, dim=2)
-    
+
+
+class PointHead(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.fc0 = Linear(769, 256)
+        self.fc1 = Linear(256, 128)
+        self.dropout = nn.Dropout(0.1)
+        self.act = nn.LeakyReLU()
+        self.top = Linear(128, 1)    
+
+    def forward(self, cells: torch.Tensor, fts: torch.Tensor):
+        x = torch.cat((cells[:, 1:-1], fts.unsqueeze(1).repeat(1, 126, 1)), 2)
+        x = self.act(self.fc0(x))
+        x = self.dropout(x)
+        x = self.act(self.fc1(x))
+        return self.top(x).squeeze(-1)
+        
+
+class PairHead(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.fc0 = Linear(1536, 512)
+        self.fc1 = Linear(512, 128)
+        self.dropout = nn.Dropout(0.1)
+        self.act = nn.LeakyReLU()
+        self.top = Linear(128, 1)
+
+    def forward(self, cells: torch.Tensor, next_masks: torch.Tensor):
+        n = cells.shape[1]-1  # n = max_n_cells + 1
+        curr = cells[:, :-1].unsqueeze(2).repeat(1, 1, n, 1)  # each curr cell * n
+        nxt = cells[:, 1:].unsqueeze(1).repeat(1, n, 1, 1)  # n * each next cell
+        # after cat: (bs, curr_idx, next_idx, emb_dim*2)
+        pairs = torch.cat((curr, nxt), dim=-1)  
+        pairs = self.act(self.fc0(pairs))
+        pairs = self.dropout(pairs)
+        pairs = self.act(self.fc1(pairs))
+        pairs = self.top(pairs).squeeze(-1)
+        return pairs.masked_fill(next_masks.bool(), -6.5e4)
+
 
 class NotebookModel(nn.Module):
     def __init__(self, model_path):
         super(NotebookModel, self).__init__()
-        self.tfm = AutoModel.from_pretrained(model_path)
-        self.agg = Attention(768)       
-        self.l0 = Linear(1537, 512)
-        self.l1 = Linear(512, 128)
-        self.dropout = nn.Dropout(0.1)
-        self.act = nn.LeakyReLU()
-        self.top = Linear(128, 1)
-        self.pad_logits = torch.Tensor([-6.5e-4])
+        self.cell_tfm = AutoModel.from_pretrained(model_path)
+        self.nb_tfm = nn.TransformerEncoder(
+            nn.TransformerEncoderLayer(d_model=768, nhead=8, batch_first=True), 
+            num_layers=6
+        )
+        self.agg = Attention(768)
+        self.point_head = PointHead()
+        self.pair_head = PairHead()
+        self.src_mask = torch.zeros(128, 128).bool().cuda()
+        for p in self.nb_tfm.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform_(p)
 
-    def forward(self, ids, cell_masks, nb_masks, label_mask, pos, start, fts):
+    def encode_cells(self, ids, cell_masks):
         bs, n_cells, max_len = ids.shape
         ids = ids.view(-1, max_len)
         cell_masks = cell_masks.view(-1, max_len)
         
         # cell transformer
-        x = self.tfm(ids, cell_masks)[0]
+        x = self.cell_tfm(ids, cell_masks)[0]
         x = x.view(bs, n_cells, max_len, x.shape[-1])
-        x = self.agg(x, (1-cell_masks).bool().view(bs, n_cells, max_len, -1))
-        
-        # add start embs
-        x = torch.cat((self.tfm.embeddings(start), x), dim=1)
-        # notebook transformer
-        x = self.tfm(
-            inputs_embeds=x, 
-            attention_mask=nb_masks, 
-            position_ids=pos
-        )[0]
+        return self.agg(x, (1-cell_masks).bool().view(bs, n_cells, max_len, -1))
 
-        n = x.shape[1]-1  # n = max_n_cells + 1
-        curr = x[:, :-1].unsqueeze(2).repeat(1, 1, n, 1)  # each curr cell * n
-        nxt = x[:, 1:].unsqueeze(1).repeat(1, n, 1, 1)  # n * each next cell
-        # after cat: (bs, curr_idx, nxt_idx, emb_dim*2)
-        pairs = torch.cat((curr, nxt), dim=3)  
-        pairs = torch.cat(
-            (pairs, fts[:, None, None, :].repeat(1, n, n, 1)), dim=3
-        )        
-        pairs = self.act(self.l0(pairs))
-        pairs = self.dropout(pairs)
-        pairs = self.act(self.l1(pairs))
-        pairs = self.top(pairs).squeeze(-1)
-        pairs.masked_fill_(label_mask.bool(), -6.5e4)
-        return pairs
+    def forward(self, ids, cell_masks, nb_atn_masks, fts, next_masks):
+        cells = self.encode_cells(ids, cell_masks)  # n_cells + 2
+        # notebook transformer
+        cells = self.nb_tfm(
+            cells, 
+            self.src_mask,
+            nb_atn_masks, 
+        )#[0]
+        return self.point_head(cells, fts), self.pair_head(cells, next_masks)

@@ -19,11 +19,11 @@ MODEL_NAME = 'microsoft/codebert-base'
 RAW_DIR: str = Path(os.environ['RAW_DIR'])
 PROC_DIR: str = Path(os.environ['PROC_DIR'])
 PCT_DATA: str = float(os.environ['PCT_DATA'])
-# PCT_DATA = 0.001
+# PCT_DATA = 0.0005
 
 # This block which I originally added as debug has saved me so many times... kep forgetting to source env
 if not make_folder(PROC_DIR):
-    print("""\
+    print("""
     Useful commands
 
     source env.sh
@@ -50,14 +50,14 @@ with mp.Pool(mp.cpu_count()) as p:
 
 df = pd.concat(notebooks_train).reset_index()
 df.loc[df['cell_type'] == 'markdown', 'cell_type'] = 'mark'
-df['cell_idx'] = df.groupby('id')['cell_id'].cumcount() # [0:MAX_N_CELLS-1]
-df['pos'] = df['cell_idx'] + 1 # [1:MAX_N_CELLS]
-df.loc[df['cell_type'] == 'mark', 'pos'] = MAX_N_CELLS + 1
+df['pos'] = df.groupby('id')['cell_id'].cumcount() + 1  # [1:MAX_N_CELLS]
+df.loc[df['cell_type'] == 'mark', 'pos'] = 'null'
 
 # Add cell type and cell index
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 df['source'] = (
-    df['cell_type'] 
+    df['cell_type'] + ' '
+    + df['pos'].astype(str)
     + tokenizer.sep_token 
     + df['source']
 )
@@ -66,34 +66,20 @@ df_orders = pd.read_csv(RAW_DIR / 'train_orders.csv')
 df_orders['cell_order'] = df_orders['cell_order'].str.split()
 df_orders = df_orders.explode('cell_order')
 df_orders['rank'] = df_orders.groupby('id')['cell_order'].cumcount()
-df_orders['rank_pct'] = (
+df_orders['pct_rank'] = (
     df_orders['rank'] / df_orders.groupby('id')['cell_order'].transform('count')
 )
 df_orders.rename(columns={'cell_order': 'cell_id'}, inplace=True)
 df_merge = df.merge(df_orders, how='left', on=['id', 'cell_id'])
 
-df_tmp = df_merge.sort_values(['id', 'rank']).reset_index(drop=True)
-df_tmp['next_cell_idx'] = df_tmp.groupby('id')['cell_idx'].shift(-1)
-df_tmp['next_cell_idx'].fillna(
-    df_tmp.groupby('id')['cell_idx'].transform(max)+1, inplace=True
-)
-df_tmp['unique_cell_id'] = (
-    df_tmp['id'].astype(str) + '_' + df_tmp['cell_idx'].astype(str)
-)
-df_merge['next_cell_idx'] = (
-    df_merge['id'].astype(str) + '_' + df_merge['cell_idx'].astype(str)
-).map(df_tmp.set_index(['unique_cell_id'])['next_cell_idx']).astype(int)
-
 df_merge[[
     'id', 
     'cell_id', 
-    'cell_idx', 
     'cell_type', 
     'pos', 
     'source', 
     'rank', 
-    'rank_pct', 
-    'next_cell_idx'
+    'pct_rank', 
 ]].set_index(['id', 'cell_type']).to_pickle(PROC_DIR / 'cells.pkl')
 
 df_merge['n_codes'] = (df_merge['cell_type'] == 'code').astype(np.int8)
@@ -107,14 +93,12 @@ df_nb = df_merge.groupby('id', as_index=False).agg({
 df_nb['md_pct'] = df_nb['n_mds'] / df_nb['n_cells']
 df_ancestors = pd.read_csv(RAW_DIR / 'train_ancestors.csv', index_col='id')
 df_nb['ancestor_id'] = df_nb['id'].map(df_ancestors['ancestor_id'])
-df_nb['1st_cell_idx'] = df_nb['id'].map(df_tmp.groupby('id')['cell_idx'].first())
 
 # A dict for all notebook metadata
 nb_meta = df_nb.drop('ancestor_id', axis=1).set_index('id').to_dict(orient='index')
 for d in nb_meta.values():
     d['n_codes'] = int(d['n_codes'])
     d['n_mds'] = int(d['n_mds'])
-    d['1st_cell_idx'] = int(d['1st_cell_idx'])
 json.dump(
     nb_meta, open(PROC_DIR / "nb_meta.json","wt")
 )

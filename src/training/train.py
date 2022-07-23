@@ -16,7 +16,7 @@ from transformers import AdamW, get_linear_schedule_with_warmup
 from src.data.quickdata import get_dl
 from src.utils import nice_pbar, make_folder, lr_to_4sf
 from src.eval.metrics import kendall_tau
-from src.models.baseline import MarkdownModel, NotebookModel
+from src.models.baseline import NotebookModel
 from src.data import read_data
 
 
@@ -29,13 +29,13 @@ def parse_args():
     # parser.add_argument('--val_features_path', type=str, default='./data/val_fts.json')
     # parser.add_argument('--val_path', type=str, default="./data/val.csv")
 
-    parser.add_argument('--max_n_cells', type=int, default=128)
+    parser.add_argument('--max_n_cells', type=int, default=126)
     parser.add_argument('--max_len', type=int, default=64)
     
-    parser.add_argument('--batch_size', type=int, default=1)
+    parser.add_argument('--batch_size', type=int, default=4)
     parser.add_argument('--accumulation_steps', type=int, default=4)
-    parser.add_argument('--epochs', type=int, default=5)
-    parser.add_argument('--n_workers', type=int, default=1)
+    parser.add_argument('--epochs', type=int, default=30)
+    parser.add_argument('--n_workers', type=int, default=4)
 
     parser.add_argument('--wandb_mode', type=str, default="offline")
     parser.add_argument('--output_dir', type=str, default="./outputs")
@@ -82,12 +82,13 @@ def train(model, train_loader, val_loader, epochs):
     scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0.05 * num_train_optimization_steps,
                                                 num_training_steps=num_train_optimization_steps)  # PyTorch scheduler
 
-    criterion = torch.nn.CrossEntropyLoss(reduction='none')
+    cls_criterion = torch.nn.CrossEntropyLoss(reduction='none')
+    reg_criterion = torch.nn.L1Loss(reduction='none')
     # criterion = torch.nn.L1Loss(reduction='none')
     scaler = torch.cuda.amp.GradScaler()
 
     
-    from src.eval import get_preds
+    from src.eval import get_raw_preds, get_point_preds, get_pair_kernel_preds
     # baseline score
     preds = val_df.groupby('id')['cell_id'].apply(list)
     print('baseline score:', kendall_tau(df_orders.loc[preds.index], preds))
@@ -98,7 +99,8 @@ def train(model, train_loader, val_loader, epochs):
 
     for epoch in range(1, epochs + 1):
         model.train()
-        loss_list = []
+        pair_loss_list = []
+        point_loss_list = []
         # preds = []
         # labels = []
 
@@ -109,18 +111,20 @@ def train(model, train_loader, val_loader, epochs):
                 if k != 'nb_ids':
                     d[k] = d[k].cuda()
             with torch.cuda.amp.autocast():
-                pred = model(
+                point_pred, pair_pred = model(
                     d['tokens'], 
                     d['cell_masks'], 
-                    d['nb_masks'], 
-                    d['label_masks'],
-                    d['pos'],
-                    d['start'], 
-                    d['md_pct']
-                ).masked_fill(d['label_masks'], -6.5e4)
-                loss = criterion(pred.permute(0, 2, 1), d['labels']) * d['nb_masks'][:, :-1]
-                loss = loss.sum() / d['nb_masks'][:, :-1].sum()
-                # loss = (loss*d['loss_ws']).sum() / d['loss_ws'].sum()
+                    d['nb_atn_masks'], 
+                    d['md_pct'],
+                    d['next_masks'], 
+                )
+                cls_mask = d['nb_cls_masks'].float()
+                pair_loss = cls_criterion(pair_pred.permute(0, 2, 1), d['next_indices'])
+                pair_loss = (pair_loss*cls_mask).sum() / cls_mask.sum()
+                reg_mask = d['nb_reg_masks'].float()
+                point_loss = reg_criterion(point_pred*reg_mask, d['pct_ranks']) * d['n_mds']
+                point_loss = point_loss.sum() / (d['n_mds']*reg_mask).sum()
+                loss = pair_loss + point_loss
             scaler.scale(loss).backward()
 
             if idx % args.accumulation_steps == 0 or idx == len(tbar) - 1:
@@ -128,34 +132,58 @@ def train(model, train_loader, val_loader, epochs):
                 scaler.update()
                 optimizer.zero_grad()
                 scheduler.step()
-
-            loss_list.append(loss.item())
+            pair_loss_list.append(pair_loss.item())
+            point_loss_list.append(point_loss.item())
             # preds.append(pred.detach().numpy().ravel())
             # labels.append(target.detach().numpy().ravel())
 
             if idx % 20 == 0:
                 metrics = {}
-                metrics['loss'] = np.round(np.mean(loss_list[-20:]), 4)
+                metrics['pair_loss'] = np.round(np.mean(pair_loss_list[-20:]), 4)
+                metrics['point_loss'] = np.round(np.mean(point_loss_list[-20:]), 4)
                 metrics['prev_lr'], metrics['next_lr'] = scheduler.get_last_lr()
                 metrics['diff_lr'] = metrics['next_lr'] - metrics['prev_lr']
                 wandb.log(metrics)
 
-                tbar.set_postfix(loss=metrics['loss'], lr=lr_to_4sf(scheduler.get_last_lr()))
+                tbar.set_postfix(
+                    pair_loss=metrics['pair_loss'], 
+                    point_loss=metrics['point_loss'], 
+                    lr=lr_to_4sf(scheduler.get_last_lr())
+                )
 
             if scheduler.get_last_lr()[0] == 0:
                 break
         torch.save(model.state_dict(), f"{args.output_dir}/model-{epoch}.bin")
 
         # TODO: Refactor to eval
-        from src.eval import get_preds
-        preds = get_preds(model, val_loader, val_df, nb_meta)
+        nb_ids, point_preds, pair_preds = get_raw_preds(model, val_loader)
+        preds_point_kernel, preds_point_ss = get_point_preds(
+            point_preds, val_df, nb_meta
+        )
+        preds_pair_kernel = get_pair_kernel_preds(pair_preds, nb_ids, val_df, nb_meta)
 
         metrics = {}
-        metrics['pred_score'] = kendall_tau(df_orders.loc[preds.index], preds)
-        metrics['avg_train_loss'] = np.mean(loss_list)
+        metrics['pred_point_kernel_score'] = kendall_tau(
+            df_orders.loc[preds_point_kernel.index], preds_point_kernel
+        )
+        metrics['pred_point_ss_score'] = kendall_tau(
+            df_orders.loc[preds_point_ss.index], preds_point_ss
+        )
+        metrics['pred_pair_kernel_score'] = kendall_tau(
+            df_orders.loc[preds_pair_kernel.index], preds_pair_kernel
+        )
+        # metrics['pred_greedy'] = kendall_tau(
+        #     df_orders.loc[pred_reg_kernel.index], pred_reg_kernel
+        # )
+        metrics['avg_pair_loss'] = np.mean(pair_loss_list)
+        metrics['avg_point_loss'] = np.mean(point_loss_list)
         wandb.log(metrics)
-        print("Preds score", metrics['pred_score'])
-        print("Avg train loss", metrics['avg_train_loss'])
+        print("pred_point_kernel_score", metrics['pred_point_kernel_score'])
+        print("pred_point_ss_score", metrics['pred_point_ss_score'])
+        print("pred_pair_kernel_score", metrics['pred_pair_kernel_score'])
+        print()
+        print("Avg pair loss", metrics['avg_pair_loss'])
+        print("Avg point loss", metrics['avg_point_loss'])
         if scheduler.get_last_lr()[0] == 0:
             break
         

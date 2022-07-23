@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 import torch
 import json
 from torch.utils.data import Dataset, DataLoader
@@ -26,89 +27,123 @@ class NotebookDataset(Dataset):
         self.nb_meta = nb_meta
         self.max_n_cells = max_n_cells
         self.max_len = max_len
+        self.front_lim = (max_len-2) // 2 + 2 - (max_len%2 == 0)
+        self.back_lim = self.max_len - self.front_lim - 1
         self.tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
         self.is_train = is_train
+
+    def trunc_mid(self, ids):
+        if len(ids) > self.max_len:
+            return ids[:self.front_lim] + [734] + ids[-self.back_lim:]
+        return ids
 
     def __getitem__(self, index) -> dict:
         nb_id = self.df_ids.loc[index]
         if self.is_train:
-            df_mds = self.df_cells.loc[nb_id, 'mark'].sample(frac=1)
-            df_cell = pd.concat([self.df_cells.loc[nb_id, 'code'], df_mds])
+            df_mds = self.df_cells.loc[nb_id].loc['mark'].sample(frac=1)
+            if isinstance(df_mds, pd.Series):
+                df_mds = df_mds.to_frame().T
+            df_cell = pd.concat([self.df_cells.loc[nb_id].loc['code'], df_mds])
+            if isinstance(df_cell, pd.Series):
+                df_cell = df_cell.to_frame().T
         else:
-            df_cell = self.df_cells.loc[nb_id]
+            df_cell = self.df_cells.loc[nb_id].copy()
         n_cells = df_cell.shape[0]
-        n_pads = int(max(0, self.max_n_cells-n_cells)) + 1
+        n_pads = int(max(0, self.max_n_cells-n_cells))
         
         texts = (
+            ['starting 0' + self.tokenizer.sep_token] +
             df_cell['source'].tolist() + 
-            n_pads * ['padding' + self.tokenizer.sep_token]
-        ) # len = max_n_cells + 1
+            ['ending null' + self.tokenizer.sep_token] +
+            n_pads * ['padding null' + self.tokenizer.sep_token]
+        )  # len = max_n_cells + 2
         
-        pos = torch.LongTensor(
-            [0] + df_cell['pos'].tolist() + n_pads * [self.max_n_cells+2]
-        )
+        # pos = torch.LongTensor(
+        #     [0] + df_cell['pos'].tolist() + [self.max_n_cells+1] 
+        #     + n_pads*[self.max_n_cells+2]
+        # )
         
         # next_cell_idx of each cell, 
         # first is a dummy start, its next_cell_idx = 1st_cell_idx
-        # if it is a padded cell, next_cell_idx = max_n_cells
-        labels = torch.LongTensor(
-            [self.nb_meta[nb_id]['1st_cell_idx']] + 
+        # if it is a padded cell, next_cell_idx = self.max_n_cells (ignore anyway)
+        df_cell['cell_idx'] = np.arange(n_cells)  # [0, n_cells-1]
+        df_tmp = df_cell[['cell_idx', 'rank']].sort_values('rank')
+        df_cell['cell_idx'] = df_cell['cell_idx'].astype(int)
+        df_tmp['next_cell_idx'] = df_tmp['cell_idx'].shift(-1).fillna(n_cells).astype(int)
+        df_cell = df_cell.merge(
+            df_tmp.drop('rank', axis=1), on='cell_idx', how='left'
+        )
+        next_indices = torch.LongTensor(
+            [df_tmp['cell_idx'].iloc[0]] + 
             df_cell['next_cell_idx'].tolist() + 
-            (n_pads-1) * [self.max_n_cells]
-        ) # len = max_n_cells + 1
-        
+            n_pads * [self.max_n_cells]
+        )  # len = max_n_cells + 1
+
         # label_masks[curr, next] = mask of logit[curr, next]
         # curr ranges from [start: max_n_cells], len = max_n_cells+1 
-        # next ranges from [1st_cell: last padded], len = max_n_cells+1 
-        label_masks = torch.zeros(labels.shape[0], labels.shape[0], dtype=torch.bool) 
-        
-        # mask all padded next cells except the last
-        label_masks[:, n_cells+1:] = 1
+        # next ranges from [1st_cell: end], len = max_n_cells+1 
+        next_masks = torch.zeros(
+            next_indices.shape[0], next_indices.shape[0], dtype=torch.bool
+        )    
+
+        # when curr is padded, ignore all non-max_n_cells next
+        next_masks[1+n_cells:, :self.max_n_cells] = 1        
+        # mask all padded next cells
+        next_masks[:, 1+n_cells:] = 1
         
         # mask when next is itself
         r = torch.arange(1, n_cells+1)
-        label_masks[r, r-1] = 1
+        next_masks[r, r-1] = 1
         
         # Since code order is known, mask all when
         # curr is start/code and next is any code
         n_codes = self.nb_meta[nb_id]['n_codes']
-        label_masks[:n_codes+1, :n_codes] = 1
+        next_masks[:n_codes+1, :n_codes] = 1
         # unmask when next of code i is i+1 (only that is possible)
-        label_masks[:n_codes, :n_codes][
+        next_masks[:n_codes, :n_codes][
             torch.arange(n_codes), torch.arange(n_codes)
         ] = 0
-        
-        # when curr is a non-last code, next won't be last pad.
-        label_masks[:n_codes, n_cells] = 1
-        
+
+        # when curr is a non-last code, next won't be end.
+        next_masks[:n_codes, n_cells] = 1
+
         # notebook padding mask
-        nb_masks = torch.ones(self.max_n_cells+2)  # start + n_cells + last_pad
-        nb_masks[n_cells+1:] = 0  # start to last cells are useful
-        
-        # start and end tokens
-        start = torch.LongTensor([self.tokenizer.cls_token_id])
+        nb_atn_masks = torch.zeros(self.max_n_cells+2).bool()  # start + n_cells + end
+        nb_atn_masks[n_cells+2:] = True  # start to end are useful
+        nb_cls_masks = torch.ones(self.max_n_cells+1).bool()
+        nb_cls_masks[n_cells+1:] = False
+        nb_reg_masks = torch.ones(self.max_n_cells).bool()
+        nb_reg_masks[n_cells:] = False
         
         inputs = self.tokenizer.batch_encode_plus(
             texts,
             add_special_tokens=True,
             max_length=self.max_len,
             padding="max_length",
-            truncation=True
+            truncation=False
         )
-        tokens = torch.LongTensor(inputs['input_ids'])
-        cell_masks = torch.LongTensor(inputs['attention_mask'])
+        tokens = list(map(self.trunc_mid, inputs['input_ids']))
+        tokens = torch.LongTensor(tokens)
+        cell_masks = list(map(lambda x: x[:self.max_len], inputs['attention_mask']))
+        cell_masks = torch.LongTensor(cell_masks)
+
         md_pct = torch.FloatTensor([self.nb_meta[nb_id]['md_pct']])
+        n_mds = torch.FloatTensor([self.nb_meta[nb_id]['n_mds']])
+        pct_ranks = torch.FloatTensor(df_cell['pct_rank'].tolist() + n_pads*[0])
         
         return {
             'nb_ids': nb_id,
             'tokens': tokens,
             'cell_masks': cell_masks,
-            'nb_masks': nb_masks,
-            'labels': labels,
-            'label_masks': label_masks,
-            'start': start,
+            'nb_atn_masks': nb_atn_masks,
+            'nb_cls_masks': nb_cls_masks,
+            'nb_reg_masks': nb_reg_masks,
+            'next_indices': next_indices,
+            'next_masks': next_masks,
+            'pct_ranks': pct_ranks,
             'md_pct': md_pct,
-            'pos': pos
+            'n_mds': n_mds
+            # 'pos': pos
         }
     
     def __len__(self) -> int:
