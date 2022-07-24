@@ -25,16 +25,17 @@ class Attention(nn.Module):
 
 
 class PointHead(nn.Module):
-    def __init__(self):
+    def __init__(self, max_n_cells, emb_dim):
         super().__init__()
-        self.fc0 = Linear(769, 256)
+        self.max_n_cells = max_n_cells
+        self.fc0 = Linear(emb_dim+1, 256)
         self.fc1 = Linear(256, 128)
         self.dropout = nn.Dropout(0.1)
         self.act = nn.LeakyReLU()
         self.top = Linear(128, 1)    
 
     def forward(self, cells: torch.Tensor, fts: torch.Tensor):
-        x = torch.cat((cells[:, 1:-1], fts.unsqueeze(1).repeat(1, 126, 1)), 2)
+        x = torch.cat((cells[:, 1:-1], fts.unsqueeze(1).repeat(1, self.max_n_cells, 1)), 2)
         x = self.act(self.fc0(x))
         x = self.dropout(x)
         x = self.act(self.fc1(x))
@@ -42,9 +43,9 @@ class PointHead(nn.Module):
         
 
 class PairHead(nn.Module):
-    def __init__(self):
+    def __init__(self, emb_dim):
         super().__init__()
-        self.fc0 = Linear(1536, 512)
+        self.fc0 = Linear(emb_dim*2, 512)
         self.fc1 = Linear(512, 128)
         self.dropout = nn.Dropout(0.1)
         self.act = nn.LeakyReLU()
@@ -64,17 +65,17 @@ class PairHead(nn.Module):
 
 
 class NotebookModel(nn.Module):
-    def __init__(self, model_path):
+    def __init__(self, model_path, max_n_cells, emb_dim):
         super(NotebookModel, self).__init__()
         self.cell_tfm = AutoModel.from_pretrained(model_path)
         self.nb_tfm = nn.TransformerEncoder(
-            nn.TransformerEncoderLayer(d_model=768, nhead=8, batch_first=True), 
+            nn.TransformerEncoderLayer(d_model=emb_dim, nhead=8, batch_first=True), 
             num_layers=6
         )
-        self.agg = Attention(768)
-        self.point_head = PointHead()
-        self.pair_head = PairHead()
-        self.src_mask = torch.zeros(128, 128).bool().cuda()
+        self.agg = Attention(emb_dim)
+        self.point_head = PointHead(max_n_cells, emb_dim)
+        self.pair_head = PairHead(emb_dim)
+        self.src_mask = torch.zeros(max_n_cells+2, max_n_cells+2).bool().cuda()
         for p in self.nb_tfm.parameters():
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)

@@ -58,7 +58,7 @@ def get_tsp_solution(M):
     return np.array(perms[1:-1]) - 2
 
 
-def get_raw_preds(model: nn.Module, loader: DataLoader):
+def get_raw_preds(model: nn.Module, loader: DataLoader, max_n_cells: int):
     model.eval()
     pbar = nice_pbar(loader, len(loader), "Validation")    
     nb_ids = []
@@ -66,7 +66,7 @@ def get_raw_preds(model: nn.Module, loader: DataLoader):
     pair_preds = []
     pair_preds_kernel = []
     with torch.inference_mode():
-        for idx, d in enumerate(pbar):
+        for d in pbar:
             nb_ids.extend(d['nb_ids'])
             for k in d:
                 if k != 'nb_ids':
@@ -84,7 +84,7 @@ def get_raw_preds(model: nn.Module, loader: DataLoader):
             pair_preds.append(pair_pred)
             pair_pred_kernel = pair_pred.masked_fill(d['md2code_masks'], -6.5e4)
             pair_pred_kernel = F.softmax(pair_pred_kernel, dim=-1)
-            pair_pred_kernel *= (torch.arange(127).cuda()+1)
+            pair_pred_kernel *= (torch.arange(max_n_cells+1).cuda()+1)
             pair_pred_kernel = pair_pred_kernel.sum(dim=-1)
             pair_preds_kernel.append(pair_pred_kernel[indices[0], indices[1]+1])
         point_preds = torch.cat(point_preds).cpu().numpy()
