@@ -156,11 +156,9 @@ def train(model, train_loader, val_loader, epochs):
         torch.save(model.state_dict(), f"{args.output_dir}/model-{epoch}.bin")
 
         # TODO: Refactor to eval
-        nb_ids, point_preds, pair_preds = get_raw_preds(model, val_loader)
-        preds_point_kernel, preds_point_ss = get_point_preds(
-            point_preds, val_df, nb_meta
-        )
-        preds_pair_kernel = get_pair_kernel_preds(pair_preds, nb_ids, val_df, nb_meta)
+        nb_ids, point_preds, pair_preds, pair_preds_kernel = get_raw_preds(model, val_loader)
+        preds_point_kernel, preds_point_ss = get_point_preds(point_preds, val_df)
+        preds_pair_kernel = get_pair_kernel_preds(pair_preds_kernel, val_df)
 
         metrics = {}
         metrics['pred_point_kernel_score'] = kendall_tau(

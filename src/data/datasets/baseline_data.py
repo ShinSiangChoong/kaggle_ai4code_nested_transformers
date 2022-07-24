@@ -107,6 +107,11 @@ class NotebookDataset(Dataset):
         # when curr is a non-last code, next won't be end.
         next_masks[:n_codes, n_cells] = 1
 
+        md2code_masks = torch.ones(
+            next_indices.shape[0], next_indices.shape[0], dtype=torch.bool
+        )
+        md2code_masks[:, :n_codes] = 0
+
         # notebook padding mask
         nb_atn_masks = torch.zeros(self.max_n_cells+2).bool()  # start + n_cells + end
         nb_atn_masks[n_cells+2:] = True  # start to end are useful
@@ -140,6 +145,7 @@ class NotebookDataset(Dataset):
             'nb_reg_masks': nb_reg_masks,
             'next_indices': next_indices,
             'next_masks': next_masks,
+            'md2code_masks': md2code_masks,
             'pct_ranks': pct_ranks,
             'md_pct': md_pct,
             'n_mds': n_mds

@@ -64,6 +64,7 @@ def get_raw_preds(model: nn.Module, loader: DataLoader):
     nb_ids = []
     point_preds = []
     pair_preds = []
+    pair_preds_kernel = []
     with torch.inference_mode():
         for idx, d in enumerate(pbar):
             nb_ids.extend(d['nb_ids'])
@@ -78,17 +79,21 @@ def get_raw_preds(model: nn.Module, loader: DataLoader):
                     d['md_pct'],
                     d['next_masks'], 
                 )
-            indices = np.where(d['nb_reg_masks'].cpu().numpy() == 1)
-            point_pred = point_pred.detach().cpu().numpy()
+            indices = torch.where(d['nb_reg_masks'] == 1)
             point_preds.append(point_pred[indices])
             pair_preds.append(pair_pred)
-            # pair_preds.append(F.softmax(pair_pred, dim=-1))
-        point_preds = np.concatenate(point_preds)
-        pair_preds = torch.cat(pair_preds, dim=0)
-    return nb_ids, point_preds, pair_preds
+            pair_pred_kernel = pair_pred.masked_fill(d['md2code_masks'], -6.5e4)
+            pair_pred_kernel = F.softmax(pair_pred_kernel, dim=-1)
+            pair_pred_kernel *= (torch.arange(127).cuda()+1)
+            pair_pred_kernel = pair_pred_kernel.sum(dim=-1)
+            pair_preds_kernel.append(pair_pred_kernel[indices[0], indices[1]+1])
+        point_preds = torch.cat(point_preds).cpu().numpy()
+        pair_preds = torch.cat(pair_preds).cpu().numpy()
+        pair_preds_kernel = torch.cat(pair_preds_kernel).cpu().numpy()
+    return nb_ids, point_preds, pair_preds, pair_preds_kernel
 
 
-def get_point_preds(point_preds: np.array, df: pd.DataFrame, nb_meta: dict):
+def get_point_preds(point_preds: np.array, df: pd.DataFrame):
     df = df.reset_index()
     df['pred_point_ss'] = point_preds
     df["pred_point_kernel"] = df.groupby(["id", "cell_type"])["rank"].rank(pct=True)
@@ -100,23 +105,14 @@ def get_point_preds(point_preds: np.array, df: pd.DataFrame, nb_meta: dict):
     return pred_point_kernel, pred_point_ss
 
 
-def get_pair_kernel_preds(pair_preds: torch.Tensor, nb_ids: list, df: pd.DataFrame, nb_meta: dict):  
+def get_pair_kernel_preds(kernel_pairs: np.array, df: pd.DataFrame):
     df = df.reset_index()
-    df['pair_kernel_preds'] = df['pos'].copy()
-    for nb_id, pred in nice_pbar(zip(nb_ids, pair_preds), total=len(nb_ids), desc='Inference'):
-        code_ranks = df.loc[
-            (df['id'] == nb_id) & (df['cell_type'] == 'code'), 'pair_kernel_preds'
-        ].values
-        md2code = pred[
-            nb_meta[nb_id]['n_codes']+1: nb_meta[nb_id]['n_cells']+1, 
-            :nb_meta[nb_id]['n_codes']
-        ]
-        md2code = F.softmax(md2code, dim=-1).cpu().numpy()
-        md_ranks = np.sum(md2code*code_ranks, axis=1)
-        df.loc[
-            (df['id'] == nb_id) & (df['cell_type'] == 'mark'), 'pair_kernel_preds'
-        ] = md_ranks
-    return df.sort_values('pair_kernel_preds').groupby('id')['cell_id'].apply(list)
+    df["pred_pair_kernel"] = kernel_pairs
+    df.loc[df["cell_type"] == "code", "pred_point_kernel"] = df.loc[
+        df["cell_type"] == "code", "pos"
+    ]
+    pred_pair_kernel = df.sort_values('pred_pair_kernel').groupby('id')['cell_id'].apply(list)
+    return pred_pair_kernel
 
 
 # def get_reg_preds(point_preds: np.array, df: pd.DataFrame, nb_meta: dict):
