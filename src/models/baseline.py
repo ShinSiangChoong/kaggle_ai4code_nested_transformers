@@ -25,10 +25,10 @@ class Attention(nn.Module):
 
 
 class PointHead(nn.Module):
-    def __init__(self, max_n_cells, emb_dim):
+    def __init__(self, max_n_cells, d):
         super().__init__()
         self.max_n_cells = max_n_cells
-        self.fc0 = Linear(emb_dim+1, 256)
+        self.fc0 = Linear(d+1, 256)
         self.fc1 = Linear(256, 128)
         self.dropout = nn.Dropout(0.1)
         self.act = nn.LeakyReLU()
@@ -43,9 +43,9 @@ class PointHead(nn.Module):
         
 
 class PairHead(nn.Module):
-    def __init__(self, emb_dim):
+    def __init__(self, d):
         super().__init__()
-        self.fc0 = Linear(emb_dim*2, 512)
+        self.fc0 = Linear(d*2, 512)
         self.fc1 = Linear(512, 128)
         self.dropout = nn.Dropout(0.1)
         self.act = nn.LeakyReLU()
@@ -55,7 +55,7 @@ class PairHead(nn.Module):
         n = cells.shape[1]-1  # n = max_n_cells + 1
         curr = cells[:, :-1].unsqueeze(2).repeat(1, 1, n, 1)  # each curr cell * n
         nxt = cells[:, 1:].unsqueeze(1).repeat(1, n, 1, 1)  # n * each next cell
-        # after cat: (bs, curr_idx, next_idx, emb_dim*2)
+        # after cat: (bs, curr_idx, next_idx, dim*2)
         pairs = torch.cat((curr, nxt), dim=-1)  
         pairs = self.act(self.fc0(pairs))
         pairs = self.dropout(pairs)
@@ -64,23 +64,17 @@ class PairHead(nn.Module):
         return pairs.masked_fill(next_masks.bool(), -6.5e4)
 
 
-class NotebookModel(nn.Module):
-    def __init__(self, model_path, max_n_cells, emb_dim):
-        super(NotebookModel, self).__init__()
+class CellEncoder(nn.Module):
+    def __init__(self, model_path, emb_dim, n_fea):
+        super(CellEncoder, self).__init__()
         self.cell_tfm = AutoModel.from_pretrained(model_path)
-        self.nb_tfm = nn.TransformerEncoder(
-            nn.TransformerEncoderLayer(d_model=emb_dim, nhead=8, batch_first=True), 
-            num_layers=6
-        )
         self.agg = Attention(emb_dim)
-        self.point_head = PointHead(max_n_cells, emb_dim)
-        self.pair_head = PairHead(emb_dim)
-        self.src_mask = torch.zeros(max_n_cells+2, max_n_cells+2).bool().cuda()
-        for p in self.nb_tfm.parameters():
-            if p.dim() > 1:
-                nn.init.xavier_uniform_(p)
+        self.fc0 = Linear(emb_dim+n_fea, emb_dim)
+        self.fc1 = Linear(emb_dim, emb_dim)
+        self.dropout = nn.Dropout(0.1)
+        self.act = nn.LeakyReLU()
 
-    def encode_cells(self, ids, cell_masks):
+    def forward(self, ids, cell_masks, cell_fea):
         bs, n_cells, max_len = ids.shape
         ids = ids.view(-1, max_len)
         cell_masks = cell_masks.view(-1, max_len)
@@ -88,10 +82,43 @@ class NotebookModel(nn.Module):
         # cell transformer
         x = self.cell_tfm(ids, cell_masks)[0]
         x = x.view(bs, n_cells, max_len, x.shape[-1])
-        return self.agg(x, (1-cell_masks).bool().view(bs, n_cells, max_len, -1))
+        x = self.agg(x, (1-cell_masks).bool().view(bs, n_cells, max_len, -1))
+        x = torch.cat((x, cell_fea), dim=-1)
+        x = self.act(self.fc0(x))
+        x = self.dropout(x)
+        x = self.act(self.fc1(x))
+        return x
 
-    def forward(self, ids, cell_masks, nb_atn_masks, fts, next_masks):
-        cells = self.encode_cells(ids, cell_masks)  # n_cells + 2
+
+class NotebookModel(nn.Module):
+    def __init__(self, model_path, max_n_cells, emb_dim):
+        super(NotebookModel, self).__init__()
+        self.cell_enc = CellEncoder(model_path, emb_dim, 2)
+        self.nb_tfm = nn.TransformerEncoder(
+            nn.TransformerEncoderLayer(d_model=emb_dim, nhead=8, batch_first=True), 
+            num_layers=6
+        )
+        self.point_head = PointHead(max_n_cells, emb_dim)
+        self.pair_head = PairHead(emb_dim)
+        self.src_mask = torch.zeros(max_n_cells+2, max_n_cells+2).bool().cuda()
+        for p in self.nb_tfm.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform_(p)
+
+    def encode_cells(self, ids, cell_masks, cell_fea):
+        bs, n_cells, max_len = ids.shape
+        ids = ids.view(-1, max_len)
+        cell_masks = cell_masks.view(-1, max_len)
+        
+        # cell transformer
+        x = self.cell_tfm(ids, cell_masks)[0]
+        x = x.view(bs, n_cells, max_len, x.shape[-1])
+        x = self.agg(x, (1-cell_masks).bool().view(bs, n_cells, max_len, -1))
+        x = torch.cat((x, cell_fea), dim=-1)
+        return x
+
+    def forward(self, ids, cell_masks, cell_fea, nb_atn_masks, fts, next_masks):
+        cells = self.cell_enc(ids, cell_masks, cell_fea)  # bs, n_cells+2, emb_dim
         # notebook transformer
         cells = self.nb_tfm(
             cells, 

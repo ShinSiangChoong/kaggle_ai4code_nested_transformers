@@ -29,13 +29,13 @@ def parse_args():
     # parser.add_argument('--val_features_path', type=str, default='./data/val_fts.json')
     # parser.add_argument('--val_path', type=str, default="./data/val.csv")
 
-    parser.add_argument('--max_n_cells', type=int, default=126)
+    parser.add_argument('--max_n_cells', type=int, default=254)
     parser.add_argument('--max_len', type=int, default=64)
     
-    parser.add_argument('--batch_size', type=int, default=4)
-    parser.add_argument('--accumulation_steps', type=int, default=4)
+    parser.add_argument('--batch_size', type=int, default=2)
+    parser.add_argument('--accumulation_steps', type=int, default=8)
     parser.add_argument('--epochs', type=int, default=30)
-    parser.add_argument('--n_workers', type=int, default=4)
+    parser.add_argument('--n_workers', type=int, default=1)
 
     parser.add_argument('--wandb_mode', type=str, default="offline")
     parser.add_argument('--output_dir', type=str, default="./outputs")
@@ -114,6 +114,7 @@ def train(model, train_loader, val_loader, epochs, max_n_cells):
                 point_pred, pair_pred = model(
                     d['tokens'], 
                     d['cell_masks'], 
+                    d['cell_fea'],
                     d['nb_atn_masks'], 
                     d['md_pct'],
                     d['next_masks'], 

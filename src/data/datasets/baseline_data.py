@@ -132,6 +132,13 @@ class NotebookDataset(Dataset):
         cell_masks = list(map(lambda x: x[:self.max_len], inputs['attention_mask']))
         cell_masks = torch.LongTensor(cell_masks)
 
+        # cell features, len = max_n_cells + 2
+        is_codes = [1] + df_cell['is_code'].tolist() + (n_pads+1)*[0]  
+        rel_pos = [0] + df_cell['rel_pos'].tolist() + (n_pads+1)*[0]  # len = max_n_cells+2
+        cell_fea = torch.stack(
+            (torch.FloatTensor(is_codes), torch.FloatTensor(rel_pos)), dim=-1
+        )
+
         md_pct = torch.FloatTensor([self.nb_meta[nb_id]['md_pct']])
         n_mds = torch.FloatTensor([self.nb_meta[nb_id]['n_mds']])
         pct_ranks = torch.FloatTensor(df_cell['pct_rank'].tolist() + n_pads*[0])
@@ -143,6 +150,7 @@ class NotebookDataset(Dataset):
             'nb_atn_masks': nb_atn_masks,
             'nb_cls_masks': nb_cls_masks,
             'nb_reg_masks': nb_reg_masks,
+            'cell_fea': cell_fea,
             'next_indices': next_indices,
             'next_masks': next_masks,
             'md2code_masks': md2code_masks,

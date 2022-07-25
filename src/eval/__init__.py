@@ -75,6 +75,7 @@ def get_raw_preds(model: nn.Module, loader: DataLoader, max_n_cells: int):
                 point_pred, pair_pred = model(
                     d['tokens'], 
                     d['cell_masks'], 
+                    d['cell_fea'],
                     d['nb_atn_masks'], 
                     d['md_pct'],
                     d['next_masks'], 
