@@ -105,18 +105,6 @@ class NotebookModel(nn.Module):
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
 
-    def encode_cells(self, ids, cell_masks, cell_fea):
-        bs, n_cells, max_len = ids.shape
-        ids = ids.view(-1, max_len)
-        cell_masks = cell_masks.view(-1, max_len)
-        
-        # cell transformer
-        x = self.cell_tfm(ids, cell_masks)[0]
-        x = x.view(bs, n_cells, max_len, x.shape[-1])
-        x = self.agg(x, (1-cell_masks).bool().view(bs, n_cells, max_len, -1))
-        x = torch.cat((x, cell_fea), dim=-1)
-        return x
-
     def forward(self, ids, cell_masks, cell_fea, nb_atn_masks, fts, next_masks):
         cells = self.cell_enc(ids, cell_masks, cell_fea)  # bs, n_cells+2, emb_dim
         # notebook transformer
