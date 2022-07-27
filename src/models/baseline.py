@@ -68,11 +68,11 @@ class CellEncoder(nn.Module):
     def __init__(self, model_path, emb_dim, n_fea):
         super(CellEncoder, self).__init__()
         self.cell_tfm = AutoModel.from_pretrained(model_path)
-        self.agg = Attention(emb_dim)
-        self.fc0 = Linear(emb_dim+n_fea, emb_dim)
+        self.fc0 = Linear(n_fea, emb_dim)
         self.fc1 = Linear(emb_dim, emb_dim)
-        self.dropout = nn.Dropout(0.1)
+        self.norm = nn.LayerNorm(emb_dim)
         self.act = nn.LeakyReLU()
+        self.agg = Attention(emb_dim)
 
     def forward(self, ids, cell_masks, cell_fea):
         bs, n_cells, max_len = ids.shape
@@ -80,14 +80,20 @@ class CellEncoder(nn.Module):
         cell_masks = cell_masks.view(-1, max_len)
         
         # cell transformer
-        x = self.cell_tfm(ids, cell_masks)[0]
-        x = x.view(bs, n_cells, max_len, x.shape[-1])
-        x = self.agg(x, (1-cell_masks).bool().view(bs, n_cells, max_len, -1))
-        x = torch.cat((x, cell_fea), dim=-1)
-        x = self.act(self.fc0(x))
-        x = self.dropout(x)
-        x = self.act(self.fc1(x))
-        return x
+        tokens = self.cell_tfm(ids, cell_masks)[0]
+        tokens = tokens.view(bs, n_cells, max_len, tokens.shape[-1])
+        
+        # cell fea
+        cell_fea = self.act(self.fc0(cell_fea))
+        cell_fea = self.act(self.fc1(cell_fea))
+        cell_fea = self.norm(cell_fea)  # bs, n_cells, emb_dim
+        # aggregate
+        masks = torch.cat((
+            (1-cell_masks).view(bs, n_cells, max_len, -1), 
+            torch.zeros(bs, n_cells, 1, 1).bool().cuda()
+        ), dim=2).bool()
+        x = torch.cat((tokens, cell_fea[:, :, None, :]), dim=2)
+        return self.agg(x, masks)
 
 
 class NotebookModel(nn.Module):

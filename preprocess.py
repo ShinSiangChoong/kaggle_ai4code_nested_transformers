@@ -19,7 +19,7 @@ MODEL_NAME = 'microsoft/codebert-base'
 RAW_DIR: str = Path(os.environ['RAW_DIR'])
 PROC_DIR: str = Path(os.environ['PROC_DIR'])
 PCT_DATA: str = float(os.environ['PCT_DATA'])
-PCT_DATA = 0.0002
+# PCT_DATA = 0.0002
 
 # This block which I originally added as debug has saved me so many times... kep forgetting to source env
 if not make_folder(PROC_DIR):
@@ -54,11 +54,9 @@ df['is_code'] = (df['cell_type'] == 'code').astype(np.int8)
 df['pos'] = df.groupby('id')['cell_id'].cumcount() + 1  # [1:MAX_N_CELLS]
 # dummy start has 0 real_pos, code cells have pos/n_codes
 # last code cells, rel_pos = 1
-df['rel_pos'] = df['pos'] / df.groupby('id')['is_code'].transform('sum') + 1
+df['rel_pos'] = df['pos'] / df.groupby('id')['is_code'].transform('sum')
 df.loc[df['cell_type'] == 'mark', 'pos'] = 'null'
 df.loc[df['cell_type'] == 'mark', 'rel_pos'] = 0
-print(df['rel_pos'].describe())
-print(df['rel_pos'].isna().sum())
 
 # Add cell type and cell index
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
