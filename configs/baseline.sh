@@ -5,6 +5,6 @@ python src/training/train.py \
 --max_len 64 \
 --batch_size 2 \
 --accumulation_steps 8 \
---epochs 5 \
+--epochs 30 \
 --n_workers 1 \
 --wandb_mode online

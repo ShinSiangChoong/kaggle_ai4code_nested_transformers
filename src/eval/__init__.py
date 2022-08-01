@@ -58,7 +58,7 @@ def get_tsp_solution(M):
     return np.array(perms[1:-1]) - 2
 
 
-def get_raw_preds(model: nn.Module, loader: DataLoader, max_n_cells: int):
+def get_raw_preds(model: nn.Module, loader: DataLoader):
     model.eval()
     pbar = nice_pbar(loader, len(loader), "Validation")    
     nb_ids = []
@@ -81,17 +81,16 @@ def get_raw_preds(model: nn.Module, loader: DataLoader, max_n_cells: int):
                     d['next_masks'], 
                 )
             indices = torch.where(d['nb_reg_masks'] == 1)
-            point_preds.append(point_pred[indices])
-            pair_preds.append(pair_pred)
+            point_preds.extend(point_pred[indices].cpu().numpy().tolist())
+            pair_preds.append(pair_pred.cpu())
             pair_pred_kernel = pair_pred.masked_fill(d['md2code_masks'], -6.5e4)
             pair_pred_kernel = F.softmax(pair_pred_kernel, dim=-1)
-            pair_pred_kernel *= (torch.arange(max_n_cells+1).cuda()+1)
+            pair_pred_kernel *= (torch.arange(point_pred.shape[1]+1).cuda()+1)
             pair_pred_kernel = pair_pred_kernel.sum(dim=-1)
-            pair_preds_kernel.append(pair_pred_kernel[indices[0], indices[1]+1])
-        point_preds = torch.cat(point_preds).cpu().numpy()
-        pair_preds = torch.cat(pair_preds).cpu().numpy()
-        pair_preds_kernel = torch.cat(pair_preds_kernel).cpu().numpy()
-    return nb_ids, point_preds, pair_preds, pair_preds_kernel
+            pair_preds_kernel.append(pair_pred_kernel[indices[0], indices[1]+1].cpu())
+        pair_preds_kernel = torch.cat(pair_preds_kernel).numpy()
+    # return nb_ids, point_preds, pair_preds, pair_preds_kernel
+    return nb_ids, point_preds, pair_preds_kernel
 
 
 def get_point_preds(point_preds: np.array, df: pd.DataFrame):

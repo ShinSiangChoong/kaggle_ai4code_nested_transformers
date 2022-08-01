@@ -22,11 +22,11 @@ def get_dl(is_train, args) -> DataLoader:
         model_name_or_path=args.model_name_or_path,
         max_n_cells=args.max_n_cells,
         max_len=args.max_len,
-        is_train=False
+        is_train=is_train
     )
     data_loader = DataLoader(
         ds, 
-        batch_size=args.batch_size, 
+        batch_size=(is_train*args.batch_size or 1), 
         shuffle=is_train, 
         num_workers=args.n_workers,
         pin_memory=False, 

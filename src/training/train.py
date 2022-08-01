@@ -37,7 +37,7 @@ def parse_args():
     parser.add_argument('--epochs', type=int, default=30)
     parser.add_argument('--n_workers', type=int, default=1)
 
-    parser.add_argument('--wandb_mode', type=str, default="offline")
+    parser.add_argument('--wandb_mode', type=str, default="disabled")
     parser.add_argument('--output_dir', type=str, default="./outputs")
 
     args = parser.parse_args()
@@ -51,7 +51,7 @@ def parse_args():
     return args
 
 
-def train(model, train_loader, val_loader, epochs, max_n_cells):
+def train(model, train_loader, val_loader, epochs):
     np.random.seed(0)
 
     # TODO: Refactor to data
@@ -157,7 +157,7 @@ def train(model, train_loader, val_loader, epochs, max_n_cells):
         torch.save(model.state_dict(), f"{args.output_dir}/model-{epoch}.bin")
 
         # TODO: Refactor to eval
-        nb_ids, point_preds, pair_preds, pair_preds_kernel = get_raw_preds(model, val_loader, max_n_cells)
+        nb_ids, point_preds, pair_preds_kernel = get_raw_preds(model, val_loader)
         preds_point_kernel, preds_point_ss = get_point_preds(point_preds, val_df)
         preds_pair_kernel = get_pair_kernel_preds(pair_preds_kernel, val_df)
 
@@ -194,7 +194,7 @@ def main(args):
     train_loader = get_dl(is_train=True, args=args)
     val_loader = get_dl(is_train=False, args=args)
 
-    model = NotebookModel(args.model_name_or_path, args.max_n_cells, 768)
+    model = NotebookModel(args.model_name_or_path, 768)
     model = model.cuda()
     wandb.watch(model, log_freq=10000, log_graph=True, log="all")
 
@@ -203,7 +203,7 @@ def main(args):
     print(os.environ)
     print(args)
 
-    train(model, train_loader, val_loader, args.epochs, args.max_n_cells)
+    train(model, train_loader, val_loader, args.epochs)
 
 
 if __name__ == '__main__':

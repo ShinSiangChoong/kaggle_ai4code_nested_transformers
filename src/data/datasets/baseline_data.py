@@ -39,6 +39,7 @@ class NotebookDataset(Dataset):
 
     def __getitem__(self, index) -> dict:
         nb_id = self.df_ids.loc[index]
+        n_cells = self.nb_meta[nb_id]['n_cells']
         if self.is_train:
             df_mds = self.df_cells.loc[nb_id].loc['mark'].sample(frac=1)
             if isinstance(df_mds, pd.Series):
@@ -46,10 +47,13 @@ class NotebookDataset(Dataset):
             df_cell = pd.concat([self.df_cells.loc[nb_id].loc['code'], df_mds])
             if isinstance(df_cell, pd.Series):
                 df_cell = df_cell.to_frame().T
+            n_pads = int(max(0, self.max_n_cells-n_cells))
+            max_n_cells = self.max_n_cells
         else:
             df_cell = self.df_cells.loc[nb_id].copy()
-        n_cells = df_cell.shape[0]
-        n_pads = int(max(0, self.max_n_cells-n_cells))
+            mod = (n_cells+2) % 8
+            n_pads = int((mod != 0)*(8 - mod))
+            max_n_cells = n_cells + n_pads
         
         texts = (
             ['starting 0' + self.tokenizer.sep_token] +
@@ -83,11 +87,11 @@ class NotebookDataset(Dataset):
         # curr ranges from [start: max_n_cells], len = max_n_cells+1 
         # next ranges from [1st_cell: end], len = max_n_cells+1 
         next_masks = torch.zeros(
-            next_indices.shape[0], next_indices.shape[0], dtype=torch.bool
+            max_n_cells+1, max_n_cells+1, dtype=torch.bool
         )    
 
         # when curr is padded, ignore all non-max_n_cells next
-        next_masks[1+n_cells:, :self.max_n_cells] = 1        
+        next_masks[1+n_cells:, :max_n_cells] = 1        
         # mask all padded next cells
         next_masks[:, 1+n_cells:] = 1
         
@@ -113,11 +117,11 @@ class NotebookDataset(Dataset):
         md2code_masks[:, :n_codes] = 0
 
         # notebook padding mask
-        nb_atn_masks = torch.zeros(self.max_n_cells+2).bool()  # start + n_cells + end
+        nb_atn_masks = torch.zeros(max_n_cells+2).bool()  # start + n_cells + end
         nb_atn_masks[n_cells+2:] = True  # start to end are useful
-        nb_cls_masks = torch.ones(self.max_n_cells+1).bool()
+        nb_cls_masks = torch.ones(max_n_cells+1).bool()
         nb_cls_masks[n_cells+1:] = False
-        nb_reg_masks = torch.ones(self.max_n_cells).bool()
+        nb_reg_masks = torch.ones(max_n_cells).bool()
         nb_reg_masks[n_cells:] = False
         
         inputs = self.tokenizer.batch_encode_plus(

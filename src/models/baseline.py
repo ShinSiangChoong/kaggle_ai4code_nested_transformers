@@ -25,9 +25,8 @@ class Attention(nn.Module):
 
 
 class PointHead(nn.Module):
-    def __init__(self, max_n_cells, d):
+    def __init__(self, d):
         super().__init__()
-        self.max_n_cells = max_n_cells
         self.fc0 = Linear(d+1, 256)
         self.fc1 = Linear(256, 128)
         self.dropout = nn.Dropout(0.1)
@@ -35,7 +34,7 @@ class PointHead(nn.Module):
         self.top = Linear(128, 1)    
 
     def forward(self, cells: torch.Tensor, fts: torch.Tensor):
-        x = torch.cat((cells[:, 1:-1], fts.unsqueeze(1).repeat(1, self.max_n_cells, 1)), 2)
+        x = torch.cat((cells[:, 1:-1], fts.unsqueeze(1).repeat(1, cells.shape[1]-2, 1)), 2)
         x = self.act(self.fc0(x))
         x = self.dropout(x)
         x = self.act(self.fc1(x))
@@ -97,16 +96,15 @@ class CellEncoder(nn.Module):
 
 
 class NotebookModel(nn.Module):
-    def __init__(self, model_path, max_n_cells, emb_dim):
+    def __init__(self, model_path, emb_dim):
         super(NotebookModel, self).__init__()
         self.cell_enc = CellEncoder(model_path, emb_dim, 2)
         self.nb_tfm = nn.TransformerEncoder(
             nn.TransformerEncoderLayer(d_model=emb_dim, nhead=8, batch_first=True), 
             num_layers=6
         )
-        self.point_head = PointHead(max_n_cells, emb_dim)
+        self.point_head = PointHead(emb_dim)
         self.pair_head = PairHead(emb_dim)
-        self.src_mask = torch.zeros(max_n_cells+2, max_n_cells+2).bool().cuda()
         for p in self.nb_tfm.parameters():
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
@@ -116,7 +114,6 @@ class NotebookModel(nn.Module):
         # notebook transformer
         cells = self.nb_tfm(
             cells, 
-            self.src_mask,
-            nb_atn_masks, 
+            src_key_padding_mask=nb_atn_masks, 
         )#[0]
         return self.point_head(cells, fts), self.pair_head(cells, next_masks)

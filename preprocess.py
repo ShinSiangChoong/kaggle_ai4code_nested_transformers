@@ -14,12 +14,12 @@ from src.utils import nice_pbar, make_folder
 from src.data.preprocess import nb_to_df
 
 
-MAX_N_CELLS = 126
+MAX_N_CELLS = 254
 MODEL_NAME = 'microsoft/codebert-base'
 RAW_DIR: str = Path(os.environ['RAW_DIR'])
 PROC_DIR: str = Path(os.environ['PROC_DIR'])
 PCT_DATA: str = float(os.environ['PCT_DATA'])
-# PCT_DATA = 0.0002
+# PCT_DATA = 0.0005
 
 # This block which I originally added as debug has saved me so many times... kep forgetting to source env
 if not make_folder(PROC_DIR):
