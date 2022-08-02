@@ -14,12 +14,12 @@ from src.utils import nice_pbar, make_folder
 from src.data.preprocess import nb_to_df
 
 
-MAX_N_CELLS = 254
+MAX_N_CELLS = 126
 MODEL_NAME = 'microsoft/codebert-base'
 RAW_DIR: str = Path(os.environ['RAW_DIR'])
 PROC_DIR: str = Path(os.environ['PROC_DIR'])
 PCT_DATA: str = float(os.environ['PCT_DATA'])
-# PCT_DATA = 0.0005
+PCT_DATA = 0.0002
 
 # This block which I originally added as debug has saved me so many times... kep forgetting to source env
 if not make_folder(PROC_DIR):
@@ -55,14 +55,13 @@ df['pos'] = df.groupby('id')['cell_id'].cumcount() + 1  # [1:MAX_N_CELLS]
 # dummy start has 0 real_pos, code cells have pos/n_codes
 # last code cells, rel_pos = 1
 df['rel_pos'] = df['pos'] / df.groupby('id')['is_code'].transform('sum')
-df.loc[df['cell_type'] == 'mark', 'pos'] = 'null'
+# df.loc[df['cell_type'] == 'mark', 'pos'] = 'null'
 df.loc[df['cell_type'] == 'mark', 'rel_pos'] = 0
 
 # Add cell type and cell index
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 df['source'] = (
-    df['cell_type'] + ' '
-    + df['pos'].astype(str)
+    df['cell_type']
     + tokenizer.sep_token 
     + df['source']
 )
@@ -119,9 +118,9 @@ val_df = df_nb.loc[val_ind, 'id'].reset_index(drop=True)
 train_df = train_df[
     train_df.map(lambda x: nb_meta[x]['n_cells']) <= MAX_N_CELLS
 ].reset_index(drop=True)
-val_df = val_df[
-    val_df.map(lambda x: nb_meta[x]['n_cells']) <= MAX_N_CELLS
-].reset_index(drop=True)
+# val_df = val_df[
+#     val_df.map(lambda x: nb_meta[x]['n_cells']) <= MAX_N_CELLS
+# ].reset_index(drop=True)
 
 train_df.to_pickle(PROC_DIR / 'train_id.pkl')
 val_df.to_pickle(PROC_DIR / 'val_id.pkl')

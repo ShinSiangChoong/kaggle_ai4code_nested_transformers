@@ -29,10 +29,10 @@ def parse_args():
     # parser.add_argument('--val_features_path', type=str, default='./data/val_fts.json')
     # parser.add_argument('--val_path', type=str, default="./data/val.csv")
 
-    parser.add_argument('--max_n_cells', type=int, default=254)
+    parser.add_argument('--max_n_cells', type=int, default=126)
     parser.add_argument('--max_len', type=int, default=64)
     
-    parser.add_argument('--batch_size', type=int, default=2)
+    parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--accumulation_steps', type=int, default=8)
     parser.add_argument('--epochs', type=int, default=30)
     parser.add_argument('--n_workers', type=int, default=1)
@@ -157,7 +157,7 @@ def train(model, train_loader, val_loader, epochs):
         torch.save(model.state_dict(), f"{args.output_dir}/model-{epoch}.bin")
 
         # TODO: Refactor to eval
-        nb_ids, point_preds, pair_preds_kernel = get_raw_preds(model, val_loader)
+        nb_ids, point_preds, _, pair_preds_kernel = get_raw_preds(model, val_loader)
         preds_point_kernel, preds_point_ss = get_point_preds(point_preds, val_df)
         preds_pair_kernel = get_pair_kernel_preds(pair_preds_kernel, val_df)
 

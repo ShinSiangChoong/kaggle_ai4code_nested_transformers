@@ -51,15 +51,18 @@ class NotebookDataset(Dataset):
             max_n_cells = self.max_n_cells
         else:
             df_cell = self.df_cells.loc[nb_id].copy()
-            mod = (n_cells+2) % 8
-            n_pads = int((mod != 0)*(8 - mod))
-            max_n_cells = n_cells + n_pads
+            max_n_cells = n_cells
+            n_pads = 0
+            # mod = (n_cells+2) % 8
+            # n_pads = int((mod != 0)*(8 - mod))
+            # max_n_cells = n_cells + n_pads
+
         
         texts = (
-            ['starting 0' + self.tokenizer.sep_token] +
+            ['starting' + self.tokenizer.sep_token] +
             df_cell['source'].tolist() + 
-            ['ending null' + self.tokenizer.sep_token] +
-            n_pads * ['padding null' + self.tokenizer.sep_token]
+            ['ending' + self.tokenizer.sep_token] +
+            n_pads * ['padding' + self.tokenizer.sep_token]
         )  # len = max_n_cells + 2
         
         # pos = torch.LongTensor(
