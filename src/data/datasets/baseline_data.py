@@ -41,12 +41,7 @@ class NotebookDataset(Dataset):
         nb_id = self.df_ids.loc[index]
         n_cells = self.nb_meta[nb_id]['n_cells']
         if self.is_train:
-            df_mds = self.df_cells.loc[nb_id].loc['mark'].sample(frac=1)
-            if isinstance(df_mds, pd.Series):
-                df_mds = df_mds.to_frame().T
-            df_cell = pd.concat([self.df_cells.loc[nb_id].loc['code'], df_mds])
-            if isinstance(df_cell, pd.Series):
-                df_cell = df_cell.to_frame().T
+            df_cell = self.df_cells.loc[nb_id].copy()
             n_pads = int(max(0, self.max_n_cells-n_cells))
             max_n_cells = self.max_n_cells
         else:
