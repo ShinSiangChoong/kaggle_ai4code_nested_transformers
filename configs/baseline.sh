@@ -12,4 +12,5 @@ python src/training/train.py \
 --n_workers 1 \
 --wandb_mode online \
 --ellipses_token_id 1873 \
+--emb_size 768 \
 --output_dir './outputs/codebert_mlm_tfm'
