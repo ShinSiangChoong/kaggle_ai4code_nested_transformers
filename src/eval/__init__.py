@@ -71,7 +71,7 @@ def get_raw_preds(model: nn.Module, loader: DataLoader):
             for k in d:
                 if k != 'nb_ids':
                     d[k] = d[k].cuda()
-            with torch.cuda.amp.autocast():
+            with torch.cuda.amp.autocast(False):
                 point_pred, pair_pred = model(
                     d['tokens'], 
                     d['cell_masks'], 
