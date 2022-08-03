@@ -19,7 +19,7 @@ def get_dl(is_train, args) -> DataLoader:
         df_ids=df_ids,
         df_cells=df_cells,
         nb_meta=nb_meta,
-        model_name_or_path=args.model_name_or_path,
+        tokenizer_name_or_path=args.tokenizer_name_or_path,
         max_n_cells=args.max_n_cells,
         max_len=args.max_len,
         is_train=is_train

@@ -12,7 +12,7 @@ class NotebookDataset(Dataset):
         df_ids: pd.DataFrame,
         df_cells: pd.DataFrame,
         nb_meta: dict,
-        model_name_or_path,
+        tokenizer_name_or_path,
         max_n_cells,
         max_len,
         is_train
@@ -29,12 +29,12 @@ class NotebookDataset(Dataset):
         self.max_len = max_len
         self.front_lim = (max_len-2) // 2 + 2 - (max_len%2 == 0)
         self.back_lim = self.max_len - self.front_lim - 1
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
+        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name_or_path)
         self.is_train = is_train
 
     def trunc_mid(self, ids):
         if len(ids) > self.max_len:
-            return ids[:self.front_lim] + [734] + ids[-self.back_lim:]
+            return ids[:self.front_lim] + [1873] + ids[-self.back_lim:]
         return ids
 
     def __getitem__(self, index) -> dict:
