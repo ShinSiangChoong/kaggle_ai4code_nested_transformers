@@ -68,9 +68,9 @@ class CellEncoder(nn.Module):
     def __init__(self, model_path, mlm_weights, emb_dim, n_fea):
         super(CellEncoder, self).__init__()
         #self.cell_tfm = AutoModel.from_pretrained(model_path)
-        mod = AutoModelWithLMHead.from_pretrained(model_path)
-        mod.load_state_dict(torch.load(mlm_weights))
-        self.cell_tfm = mod.base_model
+        self.cell_tfm = AutoModelWithLMHead.from_pretrained(model_path)
+        self.cell_tfm.load_state_dict(torch.load(mlm_weights))
+        self.cell_tfm = self.cell_tfm.base_model
         self.fc0 = Linear(n_fea, emb_dim)
         self.fc1 = Linear(emb_dim, emb_dim)
         self.norm = nn.LayerNorm(emb_dim)
