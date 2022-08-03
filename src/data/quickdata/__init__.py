@@ -22,6 +22,7 @@ def get_dl(is_train, args) -> DataLoader:
         tokenizer_name_or_path=args.tokenizer_name_or_path,
         max_n_cells=args.max_n_cells,
         max_len=args.max_len,
+        ellipses_token_id=args.ellipses_token_id,
         is_train=is_train
     )
     data_loader = DataLoader(

@@ -25,6 +25,7 @@ def parse_args():
     parser.add_argument('--model_name_or_path', type=str, default='microsoft/codebert-base')
     parser.add_argument('--tokenizer_name_or_path', type=str, default='microsoft/codebert-base')
     parser.add_argument('--pretrained_mlm_path', type=str, default='./outputs/model-1.bin')
+    parser.add_argument('--ellipses_token_id', type=int, default=734)
     # parser.add_argument('--train_mark_path', type=str, default='./data/train_mark.csv')
     # parser.add_argument('--train_features_path', type=str, default='./data/train_fts.json')
     # parser.add_argument('--val_mark_path', type=str, default='./data/val_mark.csv')
@@ -156,6 +157,9 @@ def train(model, train_loader, val_loader, epochs):
 
             if scheduler.get_last_lr()[0] == 0:
                 break
+                
+            if idx > 100:
+                break
         torch.save(model.state_dict(), f"{args.output_dir}/model-{epoch}.bin")
 
         # TODO: Refactor to eval
@@ -211,7 +215,7 @@ if __name__ == '__main__':
     args = parse_args()
     wandb.init(
         project="AI4Code Dev",
-        name="Baseline",
+        name="Test Final Ext Data",
         mode=args.wandb_mode,
     )
     try:

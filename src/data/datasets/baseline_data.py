@@ -15,6 +15,7 @@ class NotebookDataset(Dataset):
         tokenizer_name_or_path,
         max_n_cells,
         max_len,
+        ellipses_token_id,
         is_train
     ) -> None:
         """
@@ -30,11 +31,12 @@ class NotebookDataset(Dataset):
         self.front_lim = (max_len-2) // 2 + 2 - (max_len%2 == 0)
         self.back_lim = self.max_len - self.front_lim - 1
         self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name_or_path)
+        self.ellipses_token_id = ellipses_token_id
         self.is_train = is_train
 
     def trunc_mid(self, ids):
         if len(ids) > self.max_len:
-            return ids[:self.front_lim] + [1873] + ids[-self.back_lim:]
+            return ids[:self.front_lim] + [int(self.ellipses_token_id)] + ids[-self.back_lim:]
         return ids
 
     def __getitem__(self, index) -> dict:

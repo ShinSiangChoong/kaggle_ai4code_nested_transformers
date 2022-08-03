@@ -11,4 +11,5 @@ python src/training/train.py \
 --epochs 30 \
 --n_workers 1 \
 --wandb_mode online \
+--ellipses_token_id 1873 \
 --output_dir './outputs/codebert_mlm_tfm'
