@@ -63,10 +63,14 @@ class PairHead(nn.Module):
         return pairs.masked_fill(next_masks.bool(), -6.5e4)
 
 
+
 class CellEncoder(nn.Module):
-    def __init__(self, model_path, emb_dim, n_fea):
+    def __init__(self, model_path, mlm_weights, emb_dim, n_fea):
         super(CellEncoder, self).__init__()
-        self.cell_tfm = AutoModel.from_pretrained(model_path)
+        #self.cell_tfm = AutoModel.from_pretrained(model_path)
+        mod = AutoModelWithLMHead.from_pretrained(model_path)
+        mod.load_state_dict(torch.load(mlm_weights))
+        self.cell_tfm = mod.base_model
         self.fc0 = Linear(n_fea, emb_dim)
         self.fc1 = Linear(emb_dim, emb_dim)
         self.norm = nn.LayerNorm(emb_dim)
@@ -96,9 +100,9 @@ class CellEncoder(nn.Module):
 
 
 class NotebookModel(nn.Module):
-    def __init__(self, model_path, emb_dim):
+    def __init__(self, model_path, mlm_weights, emb_dim):
         super(NotebookModel, self).__init__()
-        self.cell_enc = CellEncoder(model_path, emb_dim, 2)
+        self.cell_enc = CellEncoder(model_path, mlm_weights, emb_dim, 2)
         self.nb_tfm = nn.TransformerEncoder(
             nn.TransformerEncoderLayer(d_model=emb_dim, nhead=8, batch_first=True), 
             num_layers=6

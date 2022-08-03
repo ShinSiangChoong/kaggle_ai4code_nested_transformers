@@ -23,6 +23,8 @@ from src.data import read_data
 def parse_args():
     parser = argparse.ArgumentParser(description='Process some arguments')
     parser.add_argument('--model_name_or_path', type=str, default='microsoft/codebert-base')
+    parser.add_argument('--tokenizer_name_or_path', type=str, default='microsoft/codebert-base')
+    parser.add_argument('--pretrained_mlm_path', type=str, default='./outputs/model-1.bin')
     # parser.add_argument('--train_mark_path', type=str, default='./data/train_mark.csv')
     # parser.add_argument('--train_features_path', type=str, default='./data/train_fts.json')
     # parser.add_argument('--val_mark_path', type=str, default='./data/val_mark.csv')
@@ -193,8 +195,7 @@ def main(args):
 
     train_loader = get_dl(is_train=True, args=args)
     val_loader = get_dl(is_train=False, args=args)
-
-    model = NotebookModel(args.model_name_or_path, 768)
+    model = NotebookModel(args.model_name_or_path, args.pretrained_mlm_path, 768)
     model = model.cuda()
     wandb.watch(model, log_freq=10000, log_graph=True, log="all")
 
