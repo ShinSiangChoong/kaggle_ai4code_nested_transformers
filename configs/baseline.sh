@@ -10,4 +10,5 @@ python src/training/train.py \
 --accumulation_steps 8 \
 --epochs 30 \
 --n_workers 1 \
---wandb_mode online
+--wandb_mode online \
+--output_dir './outputs/codebert_mlm_tfm'
