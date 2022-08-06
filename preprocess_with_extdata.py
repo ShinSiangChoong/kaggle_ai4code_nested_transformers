@@ -14,8 +14,8 @@ from src.data.preprocess import nb_to_df
 
 
 MAX_N_CELLS = 126
-MODEL_NAME = 'microsoft/codebert-base'
-TOKENIZER_PATH = 'microsoft/codebert-base'
+MODEL_NAME = 'microsoft/deberta-v3-base'
+TOKENIZER_PATH = 'microsoft/deberta-v3-base'
 RAW_DIR: str = Path(os.environ['RAW_DIR'])
 PROC_DIR: str = Path(os.environ['PROC_DIR'])
 PCT_DATA: str = float(os.environ['PCT_DATA'])
