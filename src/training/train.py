@@ -75,17 +75,23 @@ def train(model, train_loader, val_loader, epochs):
     
     # Creating optimizer and lr schedulers
     param_optimizer = list(model.named_parameters())
-    no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
+    no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight', 'norm']
     optimizer_grouped_parameters = [
         {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
         {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
     ]
 
     num_train_optimization_steps = int(args.epochs * len(train_loader) / args.accumulation_steps)
-    optimizer = AdamW(optimizer_grouped_parameters, lr=3e-5,
+    optimizer = AdamW(optimizer_grouped_parameters, lr=1e-5,
                       correct_bias=False)  # To reproduce BertAdam specific behavior set correct_bias=False
     scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0.05 * num_train_optimization_steps,
                                                 num_training_steps=num_train_optimization_steps)  # PyTorch scheduler
+    
+    state_dicts = {
+        'weights': model.state_dict(),
+        'optim_state': optimizer.state_dict(),
+        'scheduler_state': scheduler.state_dict()
+    }
 
     cls_criterion = torch.nn.CrossEntropyLoss(reduction='none')
     reg_criterion = torch.nn.L1Loss(reduction='none')
@@ -162,7 +168,13 @@ def train(model, train_loader, val_loader, epochs):
                 
             if idx > 100:
                 break
-        torch.save(model.state_dict(), f"{args.output_dir}/model-{epoch}.bin")
+                
+        state_dicts.update({
+            'weights': model.state_dict(),
+            'optim_state': optimizer.state_dict(),
+            'scheduler_state': scheduler.state_dict()
+        })
+        torch.save(state_dicts, f"{args.output_dir}/model-{epoch}.bin")
 
         # TODO: Refactor to eval
         nb_ids, point_preds, _, pair_preds_kernel = get_raw_preds(model, val_loader)
