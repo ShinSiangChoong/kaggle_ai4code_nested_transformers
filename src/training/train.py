@@ -43,6 +43,7 @@ def parse_args():
     parser.add_argument('--n_workers', type=int, default=1)
 
     parser.add_argument('--wandb_mode', type=str, default="disabled")
+    parser.add_argument('--wandb_name', type=str, default=None)
     parser.add_argument('--output_dir', type=str, default="./outputs")
 
     args = parser.parse_args()
@@ -167,8 +168,8 @@ def train(model, train_loader, val_loader, epochs):
             if scheduler.get_last_lr()[0] == 0:
                 break
                 
-            if idx > 100:
-                break
+            # if idx > 100:
+            #     break
                 
         state_dicts.update({
             'weights': model.state_dict(),
@@ -229,8 +230,8 @@ def main(args):
 if __name__ == '__main__':
     args = parse_args()
     wandb.init(
-        project="AI4Code Dev",
-        name="Test Final Ext Data",
+        project="AI4Code Nested Transformer",
+        name=args.wandb_name,
         mode=args.wandb_mode,
     )
     try:

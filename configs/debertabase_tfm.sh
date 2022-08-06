@@ -11,6 +11,7 @@ python src/training/train.py \
 --epochs 30 \
 --n_workers 1 \
 --wandb_mode online \
+--wandb_name 'Deberta-v3-base 126 MLM' \
 --ellipses_token_id 2 \
 --emb_size 768 \
 --output_dir './outputs/debertav3base_nested_tfm_126'
