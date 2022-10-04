@@ -16,8 +16,7 @@ from transformers import AdamW, get_linear_schedule_with_warmup
 from src.data.quickdata import get_dl
 from src.utils import nice_pbar, make_folder, lr_to_4sf
 from src.eval.metrics import kendall_tau
-from src.models.baseline import NotebookModel
-from src.data import read_data
+from src.models.nested_tfm import NotebookModel
 
 
 def parse_args():
@@ -26,12 +25,6 @@ def parse_args():
     parser.add_argument('--tokenizer_name_or_path', type=str, default='microsoft/codebert-base')
     parser.add_argument('--pretrained_mlm_path', type=str, default='./outputs/model-1.bin')
     parser.add_argument('--ellipses_token_id', type=int, default=734)
-    
-    # parser.add_argument('--train_mark_path', type=str, default='./data/train_mark.csv')
-    # parser.add_argument('--train_features_path', type=str, default='./data/train_fts.json')
-    # parser.add_argument('--val_mark_path', type=str, default='./data/val_mark.csv')
-    # parser.add_argument('--val_features_path', type=str, default='./data/val_fts.json')
-    # parser.add_argument('--val_path', type=str, default="./data/val.csv")
     
     parser.add_argument('--max_n_cells', type=int, default=126)
     parser.add_argument('--max_len', type=int, default=64)
@@ -66,7 +59,6 @@ def train(model, train_loader, val_loader, epochs):
     val_ids = pd.read_pickle(PROC_DIR / 'val_id.pkl')
     val_df = pd.read_pickle(PROC_DIR / 'cells.pkl')
     val_df = val_df.loc[val_ids.tolist()]
-    nb_meta = json.load(open(PROC_DIR / "nb_meta.json", "rt"))
 
     df_orders = pd.read_csv(
         DATA_DIR / 'train_orders.csv',
@@ -97,7 +89,6 @@ def train(model, train_loader, val_loader, epochs):
 
     cls_criterion = torch.nn.CrossEntropyLoss(reduction='none')
     reg_criterion = torch.nn.L1Loss(reduction='none')
-    # criterion = torch.nn.L1Loss(reduction='none')
     scaler = torch.cuda.amp.GradScaler()
 
     
@@ -106,16 +97,10 @@ def train(model, train_loader, val_loader, epochs):
     preds = val_df.groupby('id')['cell_id'].apply(list)
     print('baseline score:', kendall_tau(df_orders.loc[preds.index], preds))
 
-    # initial score
-    # preds = get_preds(model, val_loader, val_df, nb_meta)
-    # print('initial score:', kendall_tau(df_orders.loc[preds.index], preds))
-
     for epoch in range(1, epochs + 1):
         model.train()
         pair_loss_list = []
         point_loss_list = []
-        # preds = []
-        # labels = []
 
         tbar = nice_pbar(train_loader, len(train_loader), f"Train {epoch}")
 
@@ -168,9 +153,6 @@ def train(model, train_loader, val_loader, epochs):
             if scheduler.get_last_lr()[0] == 0:
                 break
                 
-            # if idx > 100:
-            #     break
-                
         state_dicts.update({
             'weights': model.state_dict(),
             'optim_state': optimizer.state_dict(),
@@ -179,7 +161,7 @@ def train(model, train_loader, val_loader, epochs):
         torch.save(state_dicts, f"{args.output_dir}/model-{epoch}.bin")
 
         # TODO: Refactor to eval
-        nb_ids, point_preds, _, pair_preds_kernel = get_raw_preds(model, val_loader)
+        _, point_preds, _, pair_preds_kernel = get_raw_preds(model, val_loader)
         preds_point_kernel, preds_point_ss = get_point_preds(point_preds, val_df)
         preds_pair_kernel = get_pair_kernel_preds(pair_preds_kernel, val_df)
 

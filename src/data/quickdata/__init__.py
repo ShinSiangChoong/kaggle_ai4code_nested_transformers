@@ -2,7 +2,7 @@ import json
 import pandas as pd
 from torch.utils.data import DataLoader
 
-from src.data.datasets.baseline_data import NotebookDataset
+from src.data.datasets.notebook_dataset import NotebookDataset
 
 
 def get_dl(is_train, args) -> DataLoader:
