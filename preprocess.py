@@ -19,7 +19,7 @@ MODEL_NAME = 'microsoft/codebert-base'
 RAW_DIR: str = Path(os.environ['RAW_DIR'])
 PROC_DIR: str = Path(os.environ['PROC_DIR'])
 PCT_DATA: str = float(os.environ['PCT_DATA'])
-PCT_DATA = 0.0002
+PCT_DATA = 1
 
 
 def process_order():

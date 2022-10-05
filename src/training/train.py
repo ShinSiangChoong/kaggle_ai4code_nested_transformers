@@ -76,7 +76,7 @@ def train(model, train_loader, val_loader, epochs):
 
     num_train_optimization_steps = int(args.epochs * len(train_loader) / args.accumulation_steps)
     warmup_steps = len(train_loader) // args.accumulation_steps
-    optimizer = AdamW(optimizer_grouped_parameters, lr=1e-5,
+    optimizer = AdamW(optimizer_grouped_parameters, lr=3e-5,
                       correct_bias=False)  # To reproduce BertAdam specific behavior set correct_bias=False
     scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=warmup_steps,
                                                 num_training_steps=num_train_optimization_steps)  # PyTorch scheduler
@@ -160,7 +160,6 @@ def train(model, train_loader, val_loader, epochs):
         })
         torch.save(state_dicts, f"{args.output_dir}/model-{epoch}.bin")
 
-        # TODO: Refactor to eval
         _, point_preds, _, pair_preds_kernel = get_raw_preds(model, val_loader)
         preds_point_kernel, preds_point_ss = get_point_preds(point_preds, val_df)
         preds_pair_kernel = get_pair_kernel_preds(pair_preds_kernel, val_df)
@@ -175,9 +174,6 @@ def train(model, train_loader, val_loader, epochs):
         metrics['pred_pair_kernel_score'] = kendall_tau(
             df_orders.loc[preds_pair_kernel.index], preds_pair_kernel
         )
-        # metrics['pred_greedy'] = kendall_tau(
-        #     df_orders.loc[pred_reg_kernel.index], pred_reg_kernel
-        # )
         metrics['avg_pair_loss'] = np.mean(pair_loss_list)
         metrics['avg_point_loss'] = np.mean(point_loss_list)
         wandb.log(metrics)
@@ -202,8 +198,6 @@ def main(args):
     wandb.watch(model, log_freq=10000, log_graph=True, log="all")
 
     # Tracking dump
-    print(model)
-    print(os.environ)
     print(args)
 
     train(model, train_loader, val_loader, args.epochs)
