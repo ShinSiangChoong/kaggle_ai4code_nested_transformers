@@ -10,6 +10,7 @@ python src/training/train.py \
 --epochs 30 \
 --n_workers 1 \
 --wandb_mode disabled \
+--wandb_name 'codebert' \
 --ellipses_token_id 734 \
 --emb_size 768 \
 --output_dir './outputs'
