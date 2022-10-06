@@ -15,6 +15,7 @@ from transformers import AdamW, get_linear_schedule_with_warmup
 
 from src.data.quickdata import get_dl
 from src.utils import nice_pbar, make_folder, lr_to_4sf
+from src.eval import get_raw_preds, get_point_preds
 from src.eval.metrics import kendall_tau
 from src.models.nested_tfm import NotebookModel
 
@@ -91,8 +92,6 @@ def train(model, train_loader, val_loader, epochs):
     reg_criterion = torch.nn.L1Loss(reduction='none')
     scaler = torch.cuda.amp.GradScaler()
 
-    
-    from src.eval import get_raw_preds, get_point_preds, get_pair_kernel_preds
     # baseline score
     preds = val_df.groupby('id')['cell_id'].apply(list)
     print('baseline score:', kendall_tau(df_orders.loc[preds.index], preds))
@@ -160,29 +159,17 @@ def train(model, train_loader, val_loader, epochs):
         })
         torch.save(state_dicts, f"{args.output_dir}/model-{epoch}.bin")
 
-        _, point_preds, _, pair_preds_kernel = get_raw_preds(model, val_loader)
-        preds_point_kernel, preds_point_ss = get_point_preds(point_preds, val_df)
-        preds_pair_kernel = get_pair_kernel_preds(pair_preds_kernel, val_df)
+        _, preds = get_raw_preds(model, val_loader)
+        pred_series = get_point_preds(preds, val_df)
 
         metrics = {}
-        metrics['pred_point_kernel_score'] = kendall_tau(
-            df_orders.loc[preds_point_kernel.index], preds_point_kernel
-        )
-        metrics['pred_point_ss_score'] = kendall_tau(
-            df_orders.loc[preds_point_ss.index], preds_point_ss
-        )
-        metrics['pred_pair_kernel_score'] = kendall_tau(
-            df_orders.loc[preds_pair_kernel.index], preds_pair_kernel
-        )
+        metrics['score'] = kendall_tau(df_orders.loc[pred_series.index], pred_series)
         metrics['avg_pair_loss'] = np.mean(pair_loss_list)
         metrics['avg_point_loss'] = np.mean(point_loss_list)
         wandb.log(metrics)
-        print("pred_point_kernel_score", metrics['pred_point_kernel_score'])
-        print("pred_point_ss_score", metrics['pred_point_ss_score'])
-        print("pred_pair_kernel_score", metrics['pred_pair_kernel_score'])
-        print()
-        print("Avg pair loss", metrics['avg_pair_loss'])
-        print("Avg point loss", metrics['avg_point_loss'])
+        print("score:", metrics['score'])
+        print("Avg pair loss:", metrics['avg_pair_loss'])
+        print("Avg point loss:", metrics['avg_point_loss'])
         if scheduler.get_last_lr()[0] == 0:
             break
     # return model, preds
