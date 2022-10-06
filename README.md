@@ -16,8 +16,10 @@ Training Steps
 ```
 # install the src module
 pip install -e .
+
 # data preprocessing
 python preprocess.py
+
 # training
 sh configs/train.sh
 ```
