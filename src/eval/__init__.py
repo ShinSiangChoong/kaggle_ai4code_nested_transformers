@@ -37,10 +37,16 @@ def get_raw_preds(model: nn.Module, loader: DataLoader):
 def get_point_preds(point_preds: np.array, df: pd.DataFrame):
     df = df.reset_index()
     df['preds'] = point_preds
-    return df.sort_values('preds').groupby('id')['cell_id'].apply(list)
+    df['pred_rank'] = df.groupby('id')['preds'].rank()
+    code_rank_correction(df)
+    return df.sort_values('pp_rank').groupby('id')['cell_id'].apply(list)
 
 
 def get_pair_kernel_preds(kernel_pairs: np.array, df: pd.DataFrame):
+    """
+    Make use of pairhead predictions with the logic in the public notebook:
+    https://www.kaggle.com/code/yuanzhezhou/ai4code-pairwise-bertsmall-inference
+    """
     df = df.reset_index()
     df["pred_pair_kernel"] = kernel_pairs
     df.loc[df["cell_type"] == "code", "pred_point_kernel"] = df.loc[
@@ -48,3 +54,13 @@ def get_pair_kernel_preds(kernel_pairs: np.array, df: pd.DataFrame):
     ]
     pred_pair_kernel = df.sort_values('pred_pair_kernel').groupby('id')['cell_id'].apply(list)
     return pred_pair_kernel
+
+
+def code_rank_correction(df):
+    """Swap the code cells based on the given order
+    """
+    df['pp_rank'] = df['pred_rank'].copy()
+    df.loc[df['cell_type'] == 'code', 'pp_rank'] = df.loc[
+        df['cell_type'] == 'code'
+    ].sort_values(['id', 'preds'])['pred_rank'].values
+    print('non-corrected %:', (df['pp_rank'] == df['pred_rank']).mean())
