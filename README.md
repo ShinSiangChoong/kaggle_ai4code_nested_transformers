@@ -17,6 +17,9 @@ Training Steps
 # install the src module
 pip install -e .
 
+# set environment variables
+source env.sh
+
 # data preprocessing
 python preprocess.py
 
